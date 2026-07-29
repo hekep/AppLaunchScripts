@@ -46,41 +46,11 @@ Launch it:
 hs -c 'spoon.AppLaunchScripts:launchCommunications()'
 ```
 
-```bash
-hs -c 'spoon.AppLaunchScripts:launchWorkspace("Communications")'
-```
+## Use cases
 
-## Use case: a one-button workday
-
-The Spoon was built for an Elgato Stream Deck, but any launcher that can run a shell command works the same way (Keyboard Maestro, Raycast, BetterTouchTool, a plain hotkey).
-
-The idea: each Stream Deck button materializes one workspace, no matter what state the Mac is in — apps not started, windows minimized, hidden, or scattered across Spaces.
-
-**Button 1 — "Comms"** runs:
-
-```bash
-hs -c 'spoon.AppLaunchScripts:launchCommunications()'
-```
-
-Desktop 1 pops up with Thunderbird, Slack, and Discord side by side (33/33/34). Cold-started apps are waited for; already-running apps are adopted as they are.
-
-**Button 2 — "Mail"** runs:
-
-```bash
-hs -c 'spoon.AppLaunchScripts:launchWorkspace("privateCommunications")'
-```
-
-Desktop 2 pops up (created automatically the first time) with two Gmail windows split 50/50 — one per Chrome profile, e.g. personal on the left, work on the right. Because the workspace file contains personal profile names, it lives in `workspaces/private…`, which git ignores.
-
-**Button 3 — "Terminal"** runs a single-app helper instead of a workspace:
-
-```bash
-hs -c 'spoon.AppLaunchScripts:terminal()'
-```
-
-All buttons are idempotent: pressing one again just switches to the Space, re-focuses the windows, and re-asserts the layout. When you forget a command, `hs -c 'spoon.AppLaunchScripts:help()'` prints every launcher — including one copy-pasteable line per workspace and per Chrome profile.
-
-> **Stream Deck setup:** use a "System → Open" / shell-command action and call `hs` by full path, e.g. `/opt/homebrew/bin/hs -c '…'`, since GUI launchers don't inherit your shell's `PATH`.
+- [Basic use cases](Docs/BasicUseCases.md) — `help()`, `terminal()`, `focusOrLaunch()` with layouts, Chrome profiles, hotkeys, and Stream Deck integration
+- [The Communications workspace](Docs/LaunchCommunicationsUseCase.md) — `launchCommunications()`: three apps side by side on Desktop 1
+- [The GmailCommunications workspace](Docs/LaunchGmailCommunications.md) — `launchGmailCommunications()`: Gmail in two Chrome profiles on Desktop 2, kept out of git as a private workspace
 
 ## Terminology
 
@@ -193,17 +163,13 @@ hs -c 'print(spoon.AppLaunchScripts.version)'
 
 > **Note:** the `spoon` global only exists after `hs.loadSpoon("AppLaunchScripts")` has run inside Hammerspoon. An error like `attempt to index a nil value (global 'spoon')` means the Spoon isn't loaded — check that the symlink exists in `~/.hammerspoon/Spoons/` and that `init.lua` contains the lines above.
 
-## Usage
+## Workspace configuration reference
 
-### Workspaces
-
-Drop a `<Name>.json` file into `AppLaunchScripts.spoon/workspaces/` (see the example above). On load, the Spoon scans that folder and generates `availableWorkspaces.lua` with one method per workspace — `Communications.json` becomes `launchCommunications()`. After adding or removing workspace files, reload Hammerspoon or run:
+Drop a `<Name>.json` file into `AppLaunchScripts.spoon/workspaces/`. On load, the Spoon scans that folder and generates `availableWorkspaces.lua` with one method per workspace. After adding or removing workspace files, reload Hammerspoon or run:
 
 ```bash
 hs -c 'spoon.AppLaunchScripts:generateWorkspaceMethods()'
 ```
-
-Configuration reference:
 
 | Key                | Meaning                                                                                        |
 | ------------------ | ---------------------------------------------------------------------------------------------- |
@@ -218,124 +184,9 @@ Configuration reference:
 
 Applying a workspace switches to the target Space first (new windows open on the focused Space), then launches or focuses each app and applies its slot of the layout.
 
+Workspace files whose names start with `personal` or `private` are excluded from git (see [.gitignore](.gitignore)) — details in [LaunchGmailCommunications.md](Docs/LaunchGmailCommunications.md).
+
 > **macOS caveat:** on recent macOS versions, moving an *existing* window to another Space programmatically is unreliable (`hs.spaces.moveWindowToSpace` can report success without doing anything). AppLaunchScripts therefore switches Space before opening windows, and prefers opening a fresh window on the target Space over adopting one from another Space when the move fails.
-
-### Private workspaces
-
-Workspace files whose names start with `personal` or `private` are excluded from git (see [.gitignore](.gitignore)) — keep configs with personal profile names, URLs, or app lists there:
-
-```
-AppLaunchScripts.spoon/workspaces/privateCommunications.json
-```
-
-The generated method name comes from the `name` field inside the file, not the file name — a `privateCommunications.json` with `"name": "GmailCommunications"` becomes `launchGmailCommunications()`, launchable also as `launchWorkspace("privateCommunications")`.
-
-Example of a two-profile Chrome workspace:
-
-```json
-{
-  "name": "GmailCommunications",
-  "space": {
-    "display": "current",
-    "index": 2
-  },
-  "layout": {
-    "direction": "horizontal",
-    "widths": [50, 50]
-  },
-  "apps": [
-    {
-      "name": "Chrome",
-      "profile": "example_profile_one",
-      "www": "https://www.gmail.com"
-    },
-    {
-      "name": "Chrome",
-      "profile": "example_profile_two",
-      "www": "https://www.gmail.com"
-    }
-  ]
-}
-```
-
-### Hotkeys
-
-```lua
--- Whole workspace on one key
-hs.hotkey.bind({ "cmd", "alt" }, "1", function()
-    spoon.AppLaunchScripts:launchCommunications()
-end)
-
--- Terminal on the left 66% of the screen
-hs.hotkey.bind({ "cmd", "alt" }, "t", function()
-    spoon.AppLaunchScripts:terminal()
-end)
-
--- Any app, any layout
-hs.hotkey.bind({ "cmd", "alt" }, "b", function()
-    spoon.AppLaunchScripts:focusOrLaunch("Safari", "right34")
-end)
-
--- Omit the layout to leave the window where it is
-spoon.AppLaunchScripts:focusOrLaunch("Slack")
-```
-
-See [examples/init.lua](examples/init.lua) for a fuller configuration.
-
-### Google Chrome profiles
-
-Chrome keeps its profiles in `~/Library/Application Support/Google/Chrome/Local State`; each has a directory (`Default`, `Profile 1`, …) and a display name. List yours:
-
-```bash
-hs -c 'for dir, name in pairs(spoon.AppLaunchScripts:chromeProfiles()) do print(dir, name) end'
-```
-
-Launch or focus Chrome with a preselected profile — either the directory or the display name works, case-insensitively:
-
-```lua
--- by display name
-spoon.AppLaunchScripts:chrome("profile_display_name", "rightHalf")
-
--- by profile directory
-spoon.AppLaunchScripts:chrome("Profile 1", "leftHalf")
-
--- no profile: behaves like focusOrLaunch("Google Chrome", ...)
-spoon.AppLaunchScripts:chrome(nil, "full")
-```
-
-If a window of that profile is already open it is focused and laid out; otherwise a new window is opened via `open -na "Google Chrome" --args --profile-directory="<dir>"`.
-
-> **Note:** recognizing existing windows relies on Chrome appending the profile name to window titles (e.g. `… - Google Chrome – example_profile_name`), which Chrome only does when more than one profile is in use. With a single active profile the method may open an extra window instead of focusing the current one.
-
-### Generic help
-
-The Spoon documents itself at runtime — methods, layouts, workspaces, and Chrome profiles are discovered on the fly, so custom additions show up automatically:
-
-```bash
-hs -c 'spoon.AppLaunchScripts:help()'
-```
-
-### Stream Deck (or any external launcher)
-
-With `hs.ipc` loaded, any Spoon method can be called from a shell command, so an Elgato Stream Deck button (via the *System → Open* or a shell-command plugin), Keyboard Maestro, or a plain script can trigger it:
-
-```bash
-hs -c 'spoon.AppLaunchScripts:launchCommunications()'
-```
-
-```bash
-hs -c 'spoon.AppLaunchScripts:launchWorkspace("Communications")'
-```
-
-```bash
-hs -c 'spoon.AppLaunchScripts:terminal()'
-```
-
-```bash
-hs -c 'spoon.AppLaunchScripts:chrome("example_profile_name", "rightHalf")'
-```
-
-Use the full path `/opt/homebrew/bin/hs` if the launcher doesn't inherit your shell's `PATH`.
 
 ## API
 

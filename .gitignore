@@ -1,0 +1,5 @@
+# Generated at runtime by workspaces.lua
+AppLaunchScripts.spoon/availableWorkspaces.lua
+# Avoid sharing personal workspaces
+AppLaunchScripts.spoon/workspaces/personal*
+AppLaunchScripts.spoon/workspaces/private*
