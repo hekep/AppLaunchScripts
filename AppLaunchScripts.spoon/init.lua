@@ -434,7 +434,13 @@ dofile(obj.spoonPath .. "workspaces.lua")(obj)
 
 --- AppLaunchScripts:start()
 --- Method
---- Start the Spoon. Currently a no-op kept for Spoon API conformance.
+--- Start the Spoon: binds hammerspoon:// URL events for the basic
+--- methods and the generic workspace launcher (workspace-specific URLs
+--- are bound when the launchers are generated). Available URLs:
+---  * hammerspoon://terminal
+---  * hammerspoon://focusOrLaunch?app=Safari&layout=right34
+---  * hammerspoon://chrome?profile=X&layout=rightHalf
+---  * hammerspoon://launchWorkspace?name=X
 ---
 --- Parameters:
 ---  * None
@@ -442,6 +448,42 @@ dofile(obj.spoonPath .. "workspaces.lua")(obj)
 --- Returns:
 ---  * The AppLaunchScripts object
 function obj:start()
+    -- For launchers that cannot run shell commands with arguments
+    -- (e.g. Stream Deck's "Website" action). Browsers and some
+    -- dispatchers lowercase the URL host, so bind both spellings; the
+    -- query string keeps its case.
+    local urlHandlers = {
+        terminal = function()
+            self:terminal()
+        end,
+
+        focusOrLaunch = function(_, params)
+            if params and params.app then
+                self:focusOrLaunch(params.app, params.layout)
+            else
+                hs.alert.show("focusOrLaunch URL needs ?app=<name>")
+            end
+        end,
+
+        chrome = function(_, params)
+            params = params or {}
+            self:chrome(params.profile, params.layout)
+        end,
+
+        launchWorkspace = function(_, params)
+            if params and params.name then
+                self:launchWorkspace(params.name)
+            else
+                hs.alert.show("launchWorkspace URL needs ?name=<workspace>")
+            end
+        end,
+    }
+
+    for name, handler in pairs(urlHandlers) do
+        hs.urlevent.bind(name, handler)
+        hs.urlevent.bind(name:lower(), handler)
+    end
+
     return self
 end
 

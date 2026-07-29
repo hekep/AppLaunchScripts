@@ -53,7 +53,13 @@ Because the file exists, the Spoon generates the `launchCommunications()` method
 
 ## Triggering
 
-Stream Deck (shell-command action, full path recommended):
+Stream Deck — *Website* action, **Open with: Hammerspoon** (see [button setup](BasicUseCases.md#setting-up-a-button-on-an-elgato-stream-deck)):
+
+```
+hammerspoon://launchCommunications
+```
+
+From any shell-command launcher (full path recommended):
 
 ```bash
 /opt/homebrew/bin/hs -c 'spoon.AppLaunchScripts:launchCommunications()'

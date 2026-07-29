@@ -22,6 +22,7 @@ hs -c 'spoon.AppLaunchScripts:launchCommunications()'
 - [Basic use cases](Docs/BasicUseCases.md) — `help()`, `terminal()`, `focusOrLaunch()` with layouts, Chrome profiles, hotkeys, Stream Deck
 - [The Communications workspace](Docs/LaunchCommunicationsUseCase.md) — `launchCommunications()`: three apps side by side on Desktop 1, with the example configuration
 - [The GmailCommunications workspace](Docs/LaunchGmailCommunications.md) — `launchGmailCommunications()`: Gmail in two Chrome profiles on Desktop 2, kept out of git as a private workspace
+- [Launching dev apps](Docs/UseCaseLaunchingDevApps.md) — `launchDevApps()`: a VS Code project (duplicate-proof via the Electron window-title check) plus Terminal, 66/34
 - [Workspace configuration reference](Docs/WorkspaceConfigurationReference.md) — all JSON keys and workspace behavior
 - [API](Docs/API.md) — every method and the layouts table
 

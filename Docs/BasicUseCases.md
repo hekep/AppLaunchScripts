@@ -88,7 +88,38 @@ See [examples/init.lua](../examples/init.lua) for a fuller configuration.
 
 ## Stream Deck (or any external launcher)
 
-With `hs.ipc` loaded, any Spoon method can be called from a shell command, so an Elgato Stream Deck button (via the *System → Open* or a shell-command plugin), Keyboard Maestro, or a plain script can trigger it:
+### Setting up a button on an Elgato Stream Deck
+
+Use the **Website** action with a `hammerspoon://` URL, opened directly with Hammerspoon:
+
+1. In the Stream Deck app, drag **System → Website** onto a key.
+2. **Title:** whatever the key should say, e.g. `Comms`.
+3. **URL:** the workspace launcher URL, e.g.
+
+   ```
+   hammerspoon://launchCommunications
+   ```
+
+   One URL exists per workspace (`hammerspoon://launch<Name>`), plus a generic form: `hammerspoon://launchWorkspace?name=Communications`. The URLs are case-insensitive.
+
+   The basic methods have URLs too:
+
+   ```
+   hammerspoon://terminal
+   hammerspoon://focusOrLaunch?app=Safari&layout=right34
+   hammerspoon://chrome?profile=example_profile_name&layout=rightHalf
+   ```
+4. **Open with:** select **Hammerspoon** from the dropdown (not *Default Browser*). This hands the URL straight to Hammerspoon — no browser window, no "Open Hammerspoon.app?" confirmation dialog.
+
+Press the key — the workspace comes up. Pressing again is idempotent: it re-focuses the windows and re-asserts the layout.
+
+Why not the *System → Open* action: it opens a file or app path and does **not** run a command line, so `hs -c '…'` pasted into its App/File field silently does nothing (the arguments are never parsed).
+
+If you leave **Open with** on *Default Browser*, the first press triggers the browser's external-protocol confirmation (e.g. Chrome's "Open Hammerspoon.app?") — tick *Always allow* once. Selecting **Hammerspoon** avoids this entirely.
+
+### Shell-based launchers
+
+Anything that genuinely runs a shell command (Keyboard Maestro, Raycast script commands, BetterTouchTool, a terminal, or a Stream Deck plugin that executes shell commands) can use the CLI form:
 
 ```bash
 hs -c 'spoon.AppLaunchScripts:terminal()'

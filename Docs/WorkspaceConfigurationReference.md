@@ -18,6 +18,29 @@ hs -c 'spoon.AppLaunchScripts:generateWorkspaceMethods()'
 | `apps[].name`      | Application name, as used by `hs.application.launchOrFocus()` (`"Chrome"` is accepted for `"Google Chrome"`) |
 | `apps[].profile`   | Optional Google Chrome profile (directory or display name); makes the entry a Chrome-with-profile window |
 | `apps[].www`       | Optional URL opened in the new Chrome profile window                                            |
+| `apps[].cmd`       | Optional shell command that launches the app instead of `launchOrFocus()` (run in a login shell, so CLIs like `code` are on `PATH`); `name` is still used to find the window. Runs **only when the app is not already running** (or when `window` is set and no matching window exists) — repeated workspace launches never spawn overlapping processes |
+| `apps[].window`    | Optional window-title fragment (case-insensitive) identifying the wanted window — essential for apps like VS Code where one process hosts several project windows. If a matching window exists, launching is skipped and the window is placed; if not, `cmd` runs to open it |
+
+Example: a specific VS Code project, duplicate-proof:
+
+```json
+{
+  "name": "Code",
+  "cmd": "cd ~/my-project/ && code .",
+  "window": "my-project"
+}
+```
+
+The live window list is the source of truth for duplicate protection — deliberately not PID bookkeeping: the `code` CLI exits immediately (its PID never owns the window), all VS Code projects share one process (a PID cannot distinguish them), and stored PIDs go stale after app restarts. Window titles identify the project and are re-read fresh on every launch.
+
+Example `cmd` entry — open a project in Visual Studio Code:
+
+```json
+{
+  "name": "Code",
+  "cmd": "cd ~/my-project/ && code ."
+}
+```
 
 ## Behavior
 

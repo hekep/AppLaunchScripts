@@ -61,7 +61,13 @@ Note the split identity: the **file name** (`privateCommunications`) marks it pr
 
 ## Triggering
 
-Stream Deck (shell-command action, full path recommended):
+Stream Deck — *Website* action, **Open with: Hammerspoon** (see [button setup](BasicUseCases.md#setting-up-a-button-on-an-elgato-stream-deck)):
+
+```
+hammerspoon://launchGmailCommunications
+```
+
+From any shell-command launcher (full path recommended):
 
 ```bash
 /opt/homebrew/bin/hs -c 'spoon.AppLaunchScripts:launchGmailCommunications()'

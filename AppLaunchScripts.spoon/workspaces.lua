@@ -89,6 +89,37 @@ return function(obj)
         return contains(hs.spaces.windowSpaces(window), spaceID)
     end
 
+    local function unitFrameMatches(window, screen, unit)
+        local frame = window:frame()
+        local screenFrame = screen:frame()
+        local tolerance = 20
+
+        return math.abs(frame.x - (screenFrame.x + unit.x * screenFrame.w)) <= tolerance
+            and math.abs(frame.y - (screenFrame.y + unit.y * screenFrame.h)) <= tolerance
+            and math.abs(frame.w - unit.w * screenFrame.w) <= tolerance
+            and math.abs(frame.h - unit.h * screenFrame.h) <= tolerance
+    end
+
+    -- Apps that restore their own window geometry during startup (VS
+    -- Code and other Electron apps) override the first moveToUnit() a
+    -- moment later, leaving the window at its remembered size. Apply the
+    -- layout, then re-check and re-apply until it sticks.
+    local function enforceUnit(window, screen, unit, attempts)
+        attempts = attempts or 8
+
+        window:moveToUnit(unit)
+
+        if attempts <= 0 then
+            return
+        end
+
+        hs.timer.doAfter(0.5, function()
+            if not unitFrameMatches(window, screen, unit) then
+                enforceUnit(window, screen, unit, attempts - 1)
+            end
+        end)
+    end
+
     -- Move a window to the target Space and screen and apply its slot of
     -- the layout. On recent macOS hs.spaces.moveWindowToSpace() reports
     -- success but silently does nothing, so verify and warn — the real
@@ -108,7 +139,7 @@ return function(obj)
         window:focus()
 
         if unit then
-            window:moveToUnit(unit)
+            enforceUnit(window, screen, unit)
         end
     end
 
@@ -200,8 +231,60 @@ return function(obj)
         end)
     end
 
+    -- Find a window whose title contains the given text (for apps like
+    -- VS Code that host several project windows in one process, the
+    -- title is the only thing identifying the project).
+    local function findTitledWindow(app, needle)
+        local lowered = needle:lower()
+
+        for _, window in ipairs(app:allWindows()) do
+            local title = (window:title() or ""):lower()
+
+            if title:find(lowered, 1, true) then
+                return window
+            end
+        end
+
+        return nil
+    end
+
+    -- Wait until a window matching appConfig.window exists; falls back
+    -- to the main window when the title never shows up.
+    local function waitForTitledWindow(app, needle, callback, attempts)
+        attempts = attempts or 80
+
+        local window = findTitledWindow(app, needle)
+
+        if window then
+            callback(window)
+            return
+        end
+
+        if attempts <= 0 then
+            local fallback = app:mainWindow()
+
+            if fallback then
+                callback(fallback)
+            else
+                hs.alert.show("No window found matching: " .. needle)
+            end
+
+            return
+        end
+
+        hs.timer.doAfter(0.15, function()
+            waitForTitledWindow(app, needle, callback, attempts - 1)
+        end)
+    end
+
     -- Launch or focus one app, then move its window to the target screen
     -- and Space and apply its slot of the layout.
+    --
+    -- Duplicate-launch protection: the live window list is the source of
+    -- truth (no PID bookkeeping — PIDs die with the `code` CLI, are
+    -- shared between all VS Code project windows, and rot after
+    -- restarts). When appConfig.window matches an existing window title
+    -- the launch step is skipped entirely and the window is just placed.
     local function launchIntoSpace(appConfig, screen, spaceID, unit)
         if appConfig.profile then
             launchChromeProfileIntoSpace(appConfig, screen, spaceID, unit)
@@ -209,27 +292,58 @@ return function(obj)
         end
 
         local appName = realAppName(appConfig.name)
+        local app = obj._getApp(appName)
 
-        if not obj._getApp(appName) then
-            if not hs.application.launchOrFocus(appName) then
+        if app and appConfig.window then
+            local window = findTitledWindow(app, appConfig.window)
+
+            if window then
+                app:activate(true)
+                placeWindow(window, screen, spaceID, unit)
+                return
+            end
+        end
+
+        local mustLaunch = not app
+            -- App running but the wanted project window is missing:
+            -- the cmd is what knows how to open it.
+            or (appConfig.window and appConfig.cmd) ~= nil
+
+        if mustLaunch then
+            if appConfig.cmd then
+                -- The configured shell command is responsible for
+                -- launching the app ("name" is still needed to find its
+                -- window). Run in a login shell so CLIs like `code` are
+                -- on PATH. It runs ONLY when the app is not running or
+                -- the wanted window is missing — repeated workspace
+                -- launches must not spawn overlapping processes.
+                hs.task.new("/bin/zsh", nil, { "-lc", appConfig.cmd }):start()
+            elseif not app and not hs.application.launchOrFocus(appName) then
                 hs.alert.show("Could not launch " .. appName)
                 return
             end
         end
 
-        obj._waitForApp(appName, function(app)
-            app:unhide()
+        obj._waitForApp(appName, function(launchedApp)
+            launchedApp:unhide()
 
-            for _, window in ipairs(app:allWindows()) do
+            for _, window in ipairs(launchedApp:allWindows()) do
                 if window:isMinimized() then
                     window:unminimize()
                 end
             end
 
-            app:activate(true)
+            launchedApp:activate(true)
+
+            if appConfig.window then
+                waitForTitledWindow(launchedApp, appConfig.window, function(window)
+                    placeWindow(window, screen, spaceID, unit)
+                end)
+                return
+            end
 
             -- Slack and friends can be slow on cold launch: 80 * 0.15s
-            obj._waitForWindow(app, function(window)
+            obj._waitForWindow(launchedApp, function(window)
                 placeWindow(window, screen, spaceID, unit)
             end, 80)
         end)
@@ -443,6 +557,21 @@ return function(obj)
 
         table.sort(launchers)
         obj._workspaceLaunchers = launchers
+
+        -- Expose each launcher as a hammerspoon:// URL, e.g.
+        -- hammerspoon://launchCommunications — for launchers that cannot
+        -- pass shell arguments (Stream Deck's "System → Open" cannot;
+        -- its "Website" action can open these URLs). The event name is
+        -- a URL host, which browsers normalize to lowercase, so bind
+        -- the lowercase form as well.
+        for _, method in ipairs(launchers) do
+            local handler = function()
+                obj[method](obj)
+            end
+
+            hs.urlevent.bind(method, handler)
+            hs.urlevent.bind(method:lower(), handler)
+        end
 
         table.insert(lines, "end")
 
