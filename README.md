@@ -1,0 +1,2 @@
+# AppLaunchScripts
+HammerSpoon Plugin
