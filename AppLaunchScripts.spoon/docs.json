@@ -1,0 +1,186 @@
+[
+  {
+    "Command": [],
+    "Constant": [],
+    "Constructor": [],
+    "Deprecated": [],
+    "Field": [],
+    "Function": [],
+    "Method": [
+      {
+        "def": "AppLaunchScripts:chrome(profile, layoutName)",
+        "desc": "Focus or launch Google Chrome, optionally with a specific profile.",
+        "doc": "Focus or launch Google Chrome, optionally with a specific profile.\n\nParameters:\n * profile - optional profile directory (`\"Profile 2\"`) or display name (`\"kanava.to\"`), case-insensitive. If a window of that profile is already open it is focused; otherwise a new window is opened with that profile. Omit to treat Chrome like any other app.\n * layoutName - optional layout, same as `focusOrLaunch()`\n\nReturns:\n * `true` when Chrome was found or launched, `false` on an unknown profile or launch failure",
+        "name": "chrome",
+        "parameters": [
+          " * profile - optional profile directory (`\"Profile 2\"`) or display name (`\"kanava.to\"`), case-insensitive. If a window of that profile is already open it is focused; otherwise a new window is opened with that profile. Omit to treat Chrome like any other app.",
+          " * layoutName - optional layout, same as `focusOrLaunch()`"
+        ],
+        "returns": [
+          " * `true` when Chrome was found or launched, `false` on an unknown profile or launch failure"
+        ],
+        "signature": "AppLaunchScripts:chrome(profile, layoutName)",
+        "stripped_doc": "Focus or launch Google Chrome, optionally with a specific profile.",
+        "type": "Method"
+      },
+      {
+        "def": "AppLaunchScripts:chromeProfiles()",
+        "desc": "List Google Chrome profiles from Chrome's `Local State` file.",
+        "doc": "List Google Chrome profiles from Chrome's `Local State` file.\n\nParameters:\n * None\n\nReturns:\n * A table mapping profile directory (e.g. `Profile 2`) to display name (e.g. `kanava.to`); empty if Chrome is not installed",
+        "name": "chromeProfiles",
+        "parameters": [
+          " * None"
+        ],
+        "returns": [
+          " * A table mapping profile directory (e.g. `Profile 2`) to display name (e.g. `kanava.to`); empty if Chrome is not installed"
+        ],
+        "signature": "AppLaunchScripts:chromeProfiles()",
+        "stripped_doc": "List Google Chrome profiles from Chrome's `Local State` file.",
+        "type": "Method"
+      },
+      {
+        "def": "AppLaunchScripts:focusOrLaunch(appName, layoutName)",
+        "desc": "Focus an application, launching it if necessary, and optionally apply a layout.",
+        "doc": "Focus an application, launching it if necessary, and optionally apply a layout.\n\nParameters:\n * appName - name of the application, as used by `hs.application.launchOrFocus()`\n * layoutName - optional layout: a key into `AppLaunchScripts.layouts`, or a dynamic name of the form `left<N>`, `right<N>`, `top<N>`, `bottom<N>` where N is a percentage (e.g. `right86`). Unknown names show an alert and leave the window in place.\n\nReturns:\n * `true` when the application was found or launched, `false` otherwise",
+        "name": "focusOrLaunch",
+        "parameters": [
+          " * appName - name of the application, as used by `hs.application.launchOrFocus()`",
+          " * layoutName - optional layout: a key into `AppLaunchScripts.layouts`, or a dynamic name of the form `left<N>`, `right<N>`, `top<N>`, `bottom<N>` where N is a percentage (e.g. `right86`). Unknown names show an alert and leave the window in place."
+        ],
+        "returns": [
+          " * `true` when the application was found or launched, `false` otherwise"
+        ],
+        "signature": "AppLaunchScripts:focusOrLaunch(appName, layoutName)",
+        "stripped_doc": "Focus an application, launching it if necessary, and optionally apply a layout.",
+        "type": "Method"
+      },
+      {
+        "def": "AppLaunchScripts:help()",
+        "desc": "Print generic help: available methods, layouts, and Chrome profiles.",
+        "doc": "Print generic help: available methods, layouts, and Chrome profiles.\n\nParameters:\n * None\n\nReturns:\n * The help text as a string (also printed to the console)",
+        "name": "help",
+        "parameters": [
+          " * None"
+        ],
+        "returns": [
+          " * The help text as a string (also printed to the console)"
+        ],
+        "signature": "AppLaunchScripts:help()",
+        "stripped_doc": "Print generic help: available methods, layouts, and Chrome profiles.",
+        "type": "Method"
+      },
+      {
+        "def": "AppLaunchScripts:start()",
+        "desc": "Start the Spoon. Currently a no-op kept for Spoon API conformance.",
+        "doc": "Start the Spoon. Currently a no-op kept for Spoon API conformance.\n\nParameters:\n * None\n\nReturns:\n * The AppLaunchScripts object",
+        "name": "start",
+        "parameters": [
+          " * None"
+        ],
+        "returns": [
+          " * The AppLaunchScripts object"
+        ],
+        "signature": "AppLaunchScripts:start()",
+        "stripped_doc": "Start the Spoon. Currently a no-op kept for Spoon API conformance.",
+        "type": "Method"
+      },
+      {
+        "def": "AppLaunchScripts:terminal()",
+        "desc": "Focus or launch Terminal and place it in the `left66` layout.",
+        "doc": "Focus or launch Terminal and place it in the `left66` layout.\n\nParameters:\n * None\n\nReturns:\n * `true` when Terminal was found or launched, `false` otherwise",
+        "name": "terminal",
+        "parameters": [
+          " * None"
+        ],
+        "returns": [
+          " * `true` when Terminal was found or launched, `false` otherwise"
+        ],
+        "signature": "AppLaunchScripts:terminal()",
+        "stripped_doc": "Focus or launch Terminal and place it in the `left66` layout.",
+        "type": "Method"
+      }
+    ],
+    "Variable": [
+      {
+        "def": "AppLaunchScripts.layouts",
+        "desc": "Table of named unit-rect layouts (x, y, w, h as fractions of the screen).",
+        "doc": "Table of named unit-rect layouts (x, y, w, h as fractions of the screen).\nBuilt-in layouts: `full`, `leftHalf`, `rightHalf`, `left66`, `right34`, `center`.\nAdd your own entries to use them with `focusOrLaunch()`.",
+        "name": "layouts",
+        "signature": "AppLaunchScripts.layouts",
+        "stripped_doc": "Table of named unit-rect layouts (x, y, w, h as fractions of the screen).",
+        "type": "Variable"
+      }
+    ],
+    "desc": "Focus-or-launch applications and snap their windows to predefined layouts.",
+    "doc": "Focus-or-launch applications and snap their windows to predefined layouts.\n\nDownload: [https://github.com/hekep/AppLaunchScripts](https://github.com/hekep/AppLaunchScripts)",
+    "items": [
+      {
+        "def": "AppLaunchScripts:chrome(profile, layoutName)",
+        "desc": "Focus or launch Google Chrome, optionally with a specific profile.",
+        "doc": "Focus or launch Google Chrome, optionally with a specific profile.\n\nParameters:\n * profile - optional profile directory (`\"Profile 2\"`) or display name (`\"kanava.to\"`), case-insensitive. If a window of that profile is already open it is focused; otherwise a new window is opened with that profile. Omit to treat Chrome like any other app.\n * layoutName - optional layout, same as `focusOrLaunch()`\n\nReturns:\n * `true` when Chrome was found or launched, `false` on an unknown profile or launch failure",
+        "name": "chrome",
+        "signature": "AppLaunchScripts:chrome(profile, layoutName)",
+        "stripped_doc": "Focus or launch Google Chrome, optionally with a specific profile.",
+        "type": "Method"
+      },
+      {
+        "def": "AppLaunchScripts:chromeProfiles()",
+        "desc": "List Google Chrome profiles from Chrome's `Local State` file.",
+        "doc": "List Google Chrome profiles from Chrome's `Local State` file.\n\nParameters:\n * None\n\nReturns:\n * A table mapping profile directory (e.g. `Profile 2`) to display name (e.g. `kanava.to`); empty if Chrome is not installed",
+        "name": "chromeProfiles",
+        "signature": "AppLaunchScripts:chromeProfiles()",
+        "stripped_doc": "List Google Chrome profiles from Chrome's `Local State` file.",
+        "type": "Method"
+      },
+      {
+        "def": "AppLaunchScripts:focusOrLaunch(appName, layoutName)",
+        "desc": "Focus an application, launching it if necessary, and optionally apply a layout.",
+        "doc": "Focus an application, launching it if necessary, and optionally apply a layout.\n\nParameters:\n * appName - name of the application, as used by `hs.application.launchOrFocus()`\n * layoutName - optional layout: a key into `AppLaunchScripts.layouts`, or a dynamic name of the form `left<N>`, `right<N>`, `top<N>`, `bottom<N>` where N is a percentage (e.g. `right86`). Unknown names show an alert and leave the window in place.\n\nReturns:\n * `true` when the application was found or launched, `false` otherwise",
+        "name": "focusOrLaunch",
+        "signature": "AppLaunchScripts:focusOrLaunch(appName, layoutName)",
+        "stripped_doc": "Focus an application, launching it if necessary, and optionally apply a layout.",
+        "type": "Method"
+      },
+      {
+        "def": "AppLaunchScripts:help()",
+        "desc": "Print generic help: available methods, layouts, and Chrome profiles.",
+        "doc": "Print generic help: available methods, layouts, and Chrome profiles.\n\nParameters:\n * None\n\nReturns:\n * The help text as a string (also printed to the console)",
+        "name": "help",
+        "signature": "AppLaunchScripts:help()",
+        "stripped_doc": "Print generic help: available methods, layouts, and Chrome profiles.",
+        "type": "Method"
+      },
+      {
+        "def": "AppLaunchScripts.layouts",
+        "desc": "Table of named unit-rect layouts (x, y, w, h as fractions of the screen).",
+        "doc": "Table of named unit-rect layouts (x, y, w, h as fractions of the screen).\nBuilt-in layouts: `full`, `leftHalf`, `rightHalf`, `left66`, `right34`, `center`.\nAdd your own entries to use them with `focusOrLaunch()`.",
+        "name": "layouts",
+        "signature": "AppLaunchScripts.layouts",
+        "stripped_doc": "Table of named unit-rect layouts (x, y, w, h as fractions of the screen).",
+        "type": "Variable"
+      },
+      {
+        "def": "AppLaunchScripts:start()",
+        "desc": "Start the Spoon. Currently a no-op kept for Spoon API conformance.",
+        "doc": "Start the Spoon. Currently a no-op kept for Spoon API conformance.\n\nParameters:\n * None\n\nReturns:\n * The AppLaunchScripts object",
+        "name": "start",
+        "signature": "AppLaunchScripts:start()",
+        "stripped_doc": "Start the Spoon. Currently a no-op kept for Spoon API conformance.",
+        "type": "Method"
+      },
+      {
+        "def": "AppLaunchScripts:terminal()",
+        "desc": "Focus or launch Terminal and place it in the `left66` layout.",
+        "doc": "Focus or launch Terminal and place it in the `left66` layout.\n\nParameters:\n * None\n\nReturns:\n * `true` when Terminal was found or launched, `false` otherwise",
+        "name": "terminal",
+        "signature": "AppLaunchScripts:terminal()",
+        "stripped_doc": "Focus or launch Terminal and place it in the `left66` layout.",
+        "type": "Method"
+      }
+    ],
+    "name": "AppLaunchScripts",
+    "stripped_doc": "Focus-or-launch applications and snap their windows to predefined layouts.",
+    "submodules": [],
+    "type": "Module"
+  }
+]
