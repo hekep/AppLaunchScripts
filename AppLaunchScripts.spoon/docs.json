@@ -8,12 +8,27 @@
     "Function": [],
     "Method": [
       {
+        "def": "AppLaunchScripts:applyWorkspace(config)",
+        "desc": "Apply a workspace configuration: switch to the target Space, launch or focus the apps, move their windows there, and lay them out.",
+        "doc": "Apply a workspace configuration: switch to the target Space, launch or focus the apps, move their windows there, and lay them out.\n\nParameters:\n * config - a workspace configuration table (see loadWorkspace())\n\nReturns:\n * `true` when the workspace was applied, `false` on a config error",
+        "name": "applyWorkspace",
+        "parameters": [
+          " * config - a workspace configuration table (see loadWorkspace())"
+        ],
+        "returns": [
+          " * `true` when the workspace was applied, `false` on a config error"
+        ],
+        "signature": "AppLaunchScripts:applyWorkspace(config)",
+        "stripped_doc": "Apply a workspace configuration: switch to the target Space, launch or focus the apps, move their windows there, and lay them out.",
+        "type": "Method"
+      },
+      {
         "def": "AppLaunchScripts:chrome(profile, layoutName)",
         "desc": "Focus or launch Google Chrome, optionally with a specific profile.",
-        "doc": "Focus or launch Google Chrome, optionally with a specific profile.\n\nParameters:\n * profile - optional profile directory (`\"Profile 2\"`) or display name (`\"kanava.to\"`), case-insensitive. If a window of that profile is already open it is focused; otherwise a new window is opened with that profile. Omit to treat Chrome like any other app.\n * layoutName - optional layout, same as `focusOrLaunch()`\n\nReturns:\n * `true` when Chrome was found or launched, `false` on an unknown profile or launch failure",
+        "doc": "Focus or launch Google Chrome, optionally with a specific profile.\n\nParameters:\n * profile - optional profile directory (`\"Profile 2\"`) or display name (`\"Work\"`), case-insensitive. If a window of that profile is already open it is focused; otherwise a new window is opened with that profile. Omit to treat Chrome like any other app.\n * layoutName - optional layout, same as `focusOrLaunch()`\n\nReturns:\n * `true` when Chrome was found or launched, `false` on an unknown profile or launch failure",
         "name": "chrome",
         "parameters": [
-          " * profile - optional profile directory (`\"Profile 2\"`) or display name (`\"kanava.to\"`), case-insensitive. If a window of that profile is already open it is focused; otherwise a new window is opened with that profile. Omit to treat Chrome like any other app.",
+          " * profile - optional profile directory (`\"Profile 2\"`) or display name (`\"Work\"`), case-insensitive. If a window of that profile is already open it is focused; otherwise a new window is opened with that profile. Omit to treat Chrome like any other app.",
           " * layoutName - optional layout, same as `focusOrLaunch()`"
         ],
         "returns": [
@@ -26,13 +41,13 @@
       {
         "def": "AppLaunchScripts:chromeProfiles()",
         "desc": "List Google Chrome profiles from Chrome's `Local State` file.",
-        "doc": "List Google Chrome profiles from Chrome's `Local State` file.\n\nParameters:\n * None\n\nReturns:\n * A table mapping profile directory (e.g. `Profile 2`) to display name (e.g. `kanava.to`); empty if Chrome is not installed",
+        "doc": "List Google Chrome profiles from Chrome's `Local State` file.\n\nParameters:\n * None\n\nReturns:\n * A table mapping profile directory (e.g. `Profile 2`) to display name (e.g. `Work`); empty if Chrome is not installed",
         "name": "chromeProfiles",
         "parameters": [
           " * None"
         ],
         "returns": [
-          " * A table mapping profile directory (e.g. `Profile 2`) to display name (e.g. `kanava.to`); empty if Chrome is not installed"
+          " * A table mapping profile directory (e.g. `Profile 2`) to display name (e.g. `Work`); empty if Chrome is not installed"
         ],
         "signature": "AppLaunchScripts:chromeProfiles()",
         "stripped_doc": "List Google Chrome profiles from Chrome's `Local State` file.",
@@ -55,18 +70,63 @@
         "type": "Method"
       },
       {
+        "def": "AppLaunchScripts:generateWorkspaceMethods()",
+        "desc": "Regenerate availableWorkspaces.lua from workspaces/*.json and load it, defining one launch<Name>() method per workspace.",
+        "doc": "Regenerate availableWorkspaces.lua from workspaces/*.json and load it, defining one launch<Name>() method per workspace.\n\nParameters:\n * None\n\nReturns:\n * The AppLaunchScripts object",
+        "name": "generateWorkspaceMethods",
+        "parameters": [
+          " * None"
+        ],
+        "returns": [
+          " * The AppLaunchScripts object"
+        ],
+        "signature": "AppLaunchScripts:generateWorkspaceMethods()",
+        "stripped_doc": "Regenerate availableWorkspaces.lua from workspaces/*.json and load it, defining one launch<Name>() method per workspace.",
+        "type": "Method"
+      },
+      {
         "def": "AppLaunchScripts:help()",
-        "desc": "Print generic help: available methods, layouts, and Chrome profiles.",
-        "doc": "Print generic help: available methods, layouts, and Chrome profiles.\n\nParameters:\n * None\n\nReturns:\n * The help text as a string (also printed to the console)",
+        "desc": "Generic help: available methods, layouts, workspaces, and Chrome profiles.",
+        "doc": "Generic help: available methods, layouts, workspaces, and Chrome profiles.\n\nParameters:\n * None\n\nReturns:\n * The help text as a string",
         "name": "help",
         "parameters": [
           " * None"
         ],
         "returns": [
-          " * The help text as a string (also printed to the console)"
+          " * The help text as a string"
         ],
         "signature": "AppLaunchScripts:help()",
-        "stripped_doc": "Print generic help: available methods, layouts, and Chrome profiles.",
+        "stripped_doc": "Generic help: available methods, layouts, workspaces, and Chrome profiles.",
+        "type": "Method"
+      },
+      {
+        "def": "AppLaunchScripts:launchWorkspace(name)",
+        "desc": "Load workspaces/<name>.json and apply it.",
+        "doc": "Load workspaces/<name>.json and apply it.\n\nParameters:\n * name - workspace name (file base name, e.g. \"Communications\")\n\nReturns:\n * `true` when the workspace was applied, `false` otherwise",
+        "name": "launchWorkspace",
+        "parameters": [
+          " * name - workspace name (file base name, e.g. \"Communications\")"
+        ],
+        "returns": [
+          " * `true` when the workspace was applied, `false` otherwise"
+        ],
+        "signature": "AppLaunchScripts:launchWorkspace(name)",
+        "stripped_doc": "Load workspaces/<name>.json and apply it.",
+        "type": "Method"
+      },
+      {
+        "def": "AppLaunchScripts:loadWorkspace(name)",
+        "desc": "Load and decode workspaces/<name>.json.",
+        "doc": "Load and decode workspaces/<name>.json.\n\nParameters:\n * name - workspace name (file base name, e.g. \"Communications\")\n\nReturns:\n * The decoded configuration table, or nil (with an alert) when the file is missing or invalid",
+        "name": "loadWorkspace",
+        "parameters": [
+          " * name - workspace name (file base name, e.g. \"Communications\")"
+        ],
+        "returns": [
+          " * The decoded configuration table, or nil (with an alert) when the file is missing or invalid"
+        ],
+        "signature": "AppLaunchScripts:loadWorkspace(name)",
+        "stripped_doc": "Load and decode workspaces/<name>.json.",
         "type": "Method"
       },
       {
@@ -98,6 +158,21 @@
         "signature": "AppLaunchScripts:terminal()",
         "stripped_doc": "Focus or launch Terminal and place it in the `left66` layout.",
         "type": "Method"
+      },
+      {
+        "def": "AppLaunchScripts:workspaces()",
+        "desc": "List available workspace names (the base names of workspaces/*.json).",
+        "doc": "List available workspace names (the base names of workspaces/*.json).\n\nParameters:\n * None\n\nReturns:\n * A sorted table of workspace names",
+        "name": "workspaces",
+        "parameters": [
+          " * None"
+        ],
+        "returns": [
+          " * A sorted table of workspace names"
+        ],
+        "signature": "AppLaunchScripts:workspaces()",
+        "stripped_doc": "List available workspace names (the base names of workspaces/*.json).",
+        "type": "Method"
       }
     ],
     "Variable": [
@@ -115,9 +190,18 @@
     "doc": "Focus-or-launch applications and snap their windows to predefined layouts.\n\nDownload: [https://github.com/hekep/AppLaunchScripts](https://github.com/hekep/AppLaunchScripts)",
     "items": [
       {
+        "def": "AppLaunchScripts:applyWorkspace(config)",
+        "desc": "Apply a workspace configuration: switch to the target Space, launch or focus the apps, move their windows there, and lay them out.",
+        "doc": "Apply a workspace configuration: switch to the target Space, launch or focus the apps, move their windows there, and lay them out.\n\nParameters:\n * config - a workspace configuration table (see loadWorkspace())\n\nReturns:\n * `true` when the workspace was applied, `false` on a config error",
+        "name": "applyWorkspace",
+        "signature": "AppLaunchScripts:applyWorkspace(config)",
+        "stripped_doc": "Apply a workspace configuration: switch to the target Space, launch or focus the apps, move their windows there, and lay them out.",
+        "type": "Method"
+      },
+      {
         "def": "AppLaunchScripts:chrome(profile, layoutName)",
         "desc": "Focus or launch Google Chrome, optionally with a specific profile.",
-        "doc": "Focus or launch Google Chrome, optionally with a specific profile.\n\nParameters:\n * profile - optional profile directory (`\"Profile 2\"`) or display name (`\"kanava.to\"`), case-insensitive. If a window of that profile is already open it is focused; otherwise a new window is opened with that profile. Omit to treat Chrome like any other app.\n * layoutName - optional layout, same as `focusOrLaunch()`\n\nReturns:\n * `true` when Chrome was found or launched, `false` on an unknown profile or launch failure",
+        "doc": "Focus or launch Google Chrome, optionally with a specific profile.\n\nParameters:\n * profile - optional profile directory (`\"Profile 2\"`) or display name (`\"Work\"`), case-insensitive. If a window of that profile is already open it is focused; otherwise a new window is opened with that profile. Omit to treat Chrome like any other app.\n * layoutName - optional layout, same as `focusOrLaunch()`\n\nReturns:\n * `true` when Chrome was found or launched, `false` on an unknown profile or launch failure",
         "name": "chrome",
         "signature": "AppLaunchScripts:chrome(profile, layoutName)",
         "stripped_doc": "Focus or launch Google Chrome, optionally with a specific profile.",
@@ -126,7 +210,7 @@
       {
         "def": "AppLaunchScripts:chromeProfiles()",
         "desc": "List Google Chrome profiles from Chrome's `Local State` file.",
-        "doc": "List Google Chrome profiles from Chrome's `Local State` file.\n\nParameters:\n * None\n\nReturns:\n * A table mapping profile directory (e.g. `Profile 2`) to display name (e.g. `kanava.to`); empty if Chrome is not installed",
+        "doc": "List Google Chrome profiles from Chrome's `Local State` file.\n\nParameters:\n * None\n\nReturns:\n * A table mapping profile directory (e.g. `Profile 2`) to display name (e.g. `Work`); empty if Chrome is not installed",
         "name": "chromeProfiles",
         "signature": "AppLaunchScripts:chromeProfiles()",
         "stripped_doc": "List Google Chrome profiles from Chrome's `Local State` file.",
@@ -142,12 +226,30 @@
         "type": "Method"
       },
       {
+        "def": "AppLaunchScripts:generateWorkspaceMethods()",
+        "desc": "Regenerate availableWorkspaces.lua from workspaces/*.json and load it, defining one launch<Name>() method per workspace.",
+        "doc": "Regenerate availableWorkspaces.lua from workspaces/*.json and load it, defining one launch<Name>() method per workspace.\n\nParameters:\n * None\n\nReturns:\n * The AppLaunchScripts object",
+        "name": "generateWorkspaceMethods",
+        "signature": "AppLaunchScripts:generateWorkspaceMethods()",
+        "stripped_doc": "Regenerate availableWorkspaces.lua from workspaces/*.json and load it, defining one launch<Name>() method per workspace.",
+        "type": "Method"
+      },
+      {
         "def": "AppLaunchScripts:help()",
-        "desc": "Print generic help: available methods, layouts, and Chrome profiles.",
-        "doc": "Print generic help: available methods, layouts, and Chrome profiles.\n\nParameters:\n * None\n\nReturns:\n * The help text as a string (also printed to the console)",
+        "desc": "Generic help: available methods, layouts, workspaces, and Chrome profiles.",
+        "doc": "Generic help: available methods, layouts, workspaces, and Chrome profiles.\n\nParameters:\n * None\n\nReturns:\n * The help text as a string",
         "name": "help",
         "signature": "AppLaunchScripts:help()",
-        "stripped_doc": "Print generic help: available methods, layouts, and Chrome profiles.",
+        "stripped_doc": "Generic help: available methods, layouts, workspaces, and Chrome profiles.",
+        "type": "Method"
+      },
+      {
+        "def": "AppLaunchScripts:launchWorkspace(name)",
+        "desc": "Load workspaces/<name>.json and apply it.",
+        "doc": "Load workspaces/<name>.json and apply it.\n\nParameters:\n * name - workspace name (file base name, e.g. \"Communications\")\n\nReturns:\n * `true` when the workspace was applied, `false` otherwise",
+        "name": "launchWorkspace",
+        "signature": "AppLaunchScripts:launchWorkspace(name)",
+        "stripped_doc": "Load workspaces/<name>.json and apply it.",
         "type": "Method"
       },
       {
@@ -158,6 +260,15 @@
         "signature": "AppLaunchScripts.layouts",
         "stripped_doc": "Table of named unit-rect layouts (x, y, w, h as fractions of the screen).",
         "type": "Variable"
+      },
+      {
+        "def": "AppLaunchScripts:loadWorkspace(name)",
+        "desc": "Load and decode workspaces/<name>.json.",
+        "doc": "Load and decode workspaces/<name>.json.\n\nParameters:\n * name - workspace name (file base name, e.g. \"Communications\")\n\nReturns:\n * The decoded configuration table, or nil (with an alert) when the file is missing or invalid",
+        "name": "loadWorkspace",
+        "signature": "AppLaunchScripts:loadWorkspace(name)",
+        "stripped_doc": "Load and decode workspaces/<name>.json.",
+        "type": "Method"
       },
       {
         "def": "AppLaunchScripts:start()",
@@ -175,6 +286,15 @@
         "name": "terminal",
         "signature": "AppLaunchScripts:terminal()",
         "stripped_doc": "Focus or launch Terminal and place it in the `left66` layout.",
+        "type": "Method"
+      },
+      {
+        "def": "AppLaunchScripts:workspaces()",
+        "desc": "List available workspace names (the base names of workspaces/*.json).",
+        "doc": "List available workspace names (the base names of workspaces/*.json).\n\nParameters:\n * None\n\nReturns:\n * A sorted table of workspace names",
+        "name": "workspaces",
+        "signature": "AppLaunchScripts:workspaces()",
+        "stripped_doc": "List available workspace names (the base names of workspaces/*.json).",
         "type": "Method"
       }
     ],

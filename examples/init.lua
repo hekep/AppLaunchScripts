@@ -7,6 +7,11 @@ hs.loadSpoon("AppLaunchScripts")
 
 spoon.AppLaunchScripts:start()
 
+-- Whole workspace on one key (generated from workspaces/Communications.json)
+hs.hotkey.bind({ "cmd", "alt" }, "1", function()
+    spoon.AppLaunchScripts:launchCommunications()
+end)
+
 -- Built-in helper: Terminal on the left 66% of the screen
 hs.hotkey.bind({ "cmd", "alt" }, "t", function()
     spoon.AppLaunchScripts:terminal()
@@ -29,7 +34,7 @@ end)
 -- Google Chrome with a preselected profile (directory or display name;
 -- list yours with spoon.AppLaunchScripts:chromeProfiles() or :help())
 hs.hotkey.bind({ "cmd", "alt" }, "c", function()
-    spoon.AppLaunchScripts:chrome("kanava.to", "rightHalf")
+    spoon.AppLaunchScripts:chrome("example_profile_name", "rightHalf")
 end)
 
 hs.hotkey.bind({ "cmd", "alt", "shift" }, "c", function()

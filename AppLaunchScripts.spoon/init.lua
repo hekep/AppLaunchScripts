@@ -7,7 +7,7 @@
 local obj = {}
 
 obj.name = "AppLaunchScripts"
-obj.version = "0.1.0"
+obj.version = "0.2.0"
 obj.author = "Heikki Pals"
 obj.homepage = "https://github.com/hekep/AppLaunchScripts"
 obj.license = "MIT"
@@ -192,7 +192,7 @@ function obj:focusOrLaunch(appName, layoutName)
 end
 
 -- Match a Chrome profile hint against the profiles table, by directory
--- ("Profile 2") or display name ("kanava.to"), case-insensitively.
+-- ("Profile 2") or display name ("Work"), case-insensitively.
 local function resolveChromeProfile(profiles, hint)
     local lowered = hint:lower()
 
@@ -206,11 +206,12 @@ local function resolveChromeProfile(profiles, hint)
 end
 
 -- Chrome appends the profile to window titles when more than one profile
--- is in use, e.g. "Page - Google Chrome – Heikki" or, for a profile whose
--- account name differs, "Page - Google Chrome – Heikki (kanava.to)".
--- Match the suffix only: a plain substring search for "Heikki" would also
--- hit the parenthesised form belonging to a different profile.
-local function findProfileWindow(app, name)
+-- is in use, e.g. "Page - Google Chrome – Alice" or, for a profile whose
+-- account name differs from the profile name, "Page - Google Chrome –
+-- Alice (Work)". Match the suffix only: a plain substring search for
+-- "Alice" would also hit the parenthesised form of a different profile.
+-- The optional spaceID restricts the search to windows on that Space.
+local function findProfileWindow(app, name, spaceID)
     local bare = "– " .. name
     local parenthesised = "(" .. name .. ")"
 
@@ -219,7 +220,15 @@ local function findProfileWindow(app, name)
 
         if title:sub(-#bare) == bare
             or title:sub(-#parenthesised) == parenthesised then
-            return window
+            if not spaceID then
+                return window
+            end
+
+            for _, space in ipairs(hs.spaces.windowSpaces(window) or {}) do
+                if space == spaceID then
+                    return window
+                end
+            end
         end
     end
 
@@ -234,7 +243,7 @@ end
 ---  * None
 ---
 --- Returns:
----  * A table mapping profile directory (e.g. `Profile 2`) to display name (e.g. `kanava.to`); empty if Chrome is not installed
+---  * A table mapping profile directory (e.g. `Profile 2`) to display name (e.g. `Work`); empty if Chrome is not installed
 function obj:chromeProfiles()
     local path = os.getenv("HOME")
         .. "/Library/Application Support/Google/Chrome/Local State"
@@ -262,7 +271,7 @@ end
 --- Focus or launch Google Chrome, optionally with a specific profile.
 ---
 --- Parameters:
----  * profile - optional profile directory (`"Profile 2"`) or display name (`"kanava.to"`), case-insensitive. If a window of that profile is already open it is focused; otherwise a new window is opened with that profile. Omit to treat Chrome like any other app.
+---  * profile - optional profile directory (`"Profile 2"`) or display name (`"Work"`), case-insensitive. If a window of that profile is already open it is focused; otherwise a new window is opened with that profile. Omit to treat Chrome like any other app.
 ---  * layoutName - optional layout, same as `focusOrLaunch()`
 ---
 --- Returns:
@@ -334,15 +343,16 @@ end
 
 --- AppLaunchScripts:help()
 --- Method
---- Print generic help: available methods, layouts, and Chrome profiles.
---- Everything is discovered at runtime, so custom layouts and new methods
---- show up automatically. Handy from the shell: `hs -c 'spoon.AppLaunchScripts:help()'`
+--- Generic help: available methods, layouts, workspaces, and Chrome
+--- profiles. Everything is discovered at runtime, so custom layouts and
+--- new methods show up automatically. Handy from the shell:
+--- `hs -c 'spoon.AppLaunchScripts:help()'`
 ---
 --- Parameters:
 ---  * None
 ---
 --- Returns:
----  * The help text as a string (also printed to the console)
+---  * The help text as a string
 function obj:help()
     local lines = {
         self.name .. " " .. self.version .. " — " .. self.homepage,
@@ -353,7 +363,7 @@ function obj:help()
     local methods = {}
 
     for key, value in pairs(self) do
-        if type(value) == "function" then
+        if type(value) == "function" and not key:match("^_") then
             table.insert(methods, key)
         end
     end
@@ -376,28 +386,51 @@ function obj:help()
     table.insert(lines, "Layouts (plus dynamic left<N>/right<N>/top<N>/bottom<N>):")
     table.insert(lines, "  " .. table.concat(layoutNames, ", "))
 
+    if self._workspaceLaunchers and #self._workspaceLaunchers > 0 then
+        table.insert(lines, "")
+        table.insert(lines, "Workspaces:")
+
+        for _, method in ipairs(self._workspaceLaunchers) do
+            table.insert(lines, string.format(
+                "  spoon.%s:%s()", self.name, method))
+        end
+    end
+
     local profileLines = {}
 
     for dir, name in pairs(self:chromeProfiles()) do
-        table.insert(profileLines, string.format("  %-12s %s", dir, name))
+        local command = string.format(
+            '  spoon.%s:chrome("%s", "rightHalf")', self.name, name)
+
+        table.insert(profileLines,
+            string.format("%-58s -- %s", command, dir))
     end
 
     if #profileLines > 0 then
         table.sort(profileLines)
         table.insert(lines, "")
-        table.insert(lines, "Chrome profiles (directory / name — either works):")
+        table.insert(lines, "Chrome profiles (profile directory works too):")
 
         for _, line in ipairs(profileLines) do
             table.insert(lines, line)
         end
     end
 
-    local text = table.concat(lines, "\n")
-
-    print(text)
-
-    return text
+    return table.concat(lines, "\n")
 end
+
+-- Internal helpers shared with workspaces.lua (leading underscore keeps
+-- them out of help()).
+obj._getApp = getApp
+obj._waitForApp = waitForApp
+obj._waitForWindow = waitForWindow
+obj._resolveChromeProfile = resolveChromeProfile
+obj._findProfileWindow = findProfileWindow
+obj._resolveLayout = resolveLayout
+
+obj.spoonPath = hs.spoons.scriptPath()
+
+dofile(obj.spoonPath .. "workspaces.lua")(obj)
 
 --- AppLaunchScripts:start()
 --- Method
