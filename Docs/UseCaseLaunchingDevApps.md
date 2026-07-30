@@ -21,7 +21,7 @@ hammerspoon://launchDevApps
   "name": "DevApps",
   "space": {
     "display": "current",
-    "index": 3
+    "desktop": 3
   },
   "layout": {
     "direction": "horizontal",

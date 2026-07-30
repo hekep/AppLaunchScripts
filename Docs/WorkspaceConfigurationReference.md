@@ -12,14 +12,15 @@ hs -c 'spoon.AppLaunchScripts:generateWorkspaceMethods()'
 | ------------------ | ---------------------------------------------------------------------------------------------- |
 | `name`             | Workspace name: used in the launch alert and as the generated method name (`launch<Name>()`); defaults to the file name |
 | `space.display`    | `"current"` (default), `"primary"`, a screen index number, or a screen name                     |
-| `space.index`      | 1-based index into that display's Spaces ("Desktop 1" is index 1); missing Spaces are created automatically |
+| `space.desktop`    | 1-based desktop number on that display ("Desktop 1" is `1`); missing Spaces are created automatically. `space.index` is accepted as a legacy alias |
 | `layout.direction` | `"horizontal"` (default) or `"vertical"`                                                        |
-| `layout.widths`    | Percentages per app, in `apps` order (use `heights` with `"vertical"`); omit for an even split  |
+| `layout.widths`    | Percentages per app, in `apps` order (use `heights` with `"vertical"`); omit for an even split. Validated on launch: the value count must equal the app count, all values must be positive numbers, and the sum must not exceed 100 — otherwise an alert explains the problem and every app gets an equal share |
 | `apps[].name`      | Application name, as used by `hs.application.launchOrFocus()` (`"Chrome"` is accepted for `"Google Chrome"`) |
 | `apps[].profile`   | Optional Google Chrome profile (directory or display name); makes the entry a Chrome-with-profile window |
-| `apps[].www`       | Optional URL opened in the new Chrome profile window                                            |
+| `apps[].www`       | Optional URL for the Chrome profile window. New windows open on it; on repeated launches the first tab whose URL contains the site's host is re-activated, or a new tab is opened when none is left. Use the post-redirect URL (e.g. `https://mail.google.com/`, not `www.gmail.com`, which redirects) so tabs can be recognized. Tab control needs the macOS Automation permission (Hammerspoon → Google Chrome) — macOS prompts on first use |
 | `apps[].cmd`       | Optional shell command that launches the app instead of `launchOrFocus()` (run in a login shell, so CLIs like `code` are on `PATH`); `name` is still used to find the window. Runs **only when the app is not already running** (or when `window` is set and no matching window exists) — repeated workspace launches never spawn overlapping processes |
-| `apps[].window`    | Optional window-title fragment (case-insensitive) identifying the wanted window — essential for apps like VS Code where one process hosts several project windows. If a matching window exists, launching is skipped and the window is placed; if not, `cmd` runs to open it |
+| `apps[].window`    | Optional window-title fragment (case-insensitive) identifying the wanted window — essential for apps like VS Code where one process hosts several project windows. If a matching window exists, launching is skipped and the window is placed; if not, `cmd` runs to open it. If the fragment matches several windows an alert asks you to make it more unique (the first match is used) |
+| —                  | An app that is not installed is reported with an alert: `"<Name>" not installed`                |
 
 Example: a specific VS Code project, duplicate-proof:
 
@@ -42,11 +43,22 @@ Example `cmd` entry — open a project in Visual Studio Code:
 }
 ```
 
+## Choosing desktops: one vs. many
+
+> **Important for multi-desktop workspaces:** disable *System Settings → Desktop & Dock → Mission Control → "Automatically rearrange Spaces based on most recent use"*. With it enabled, macOS reorders desktops every time you switch, so `"desktop": 2` points at a different desktop from one launch to the next — windows end up scattered.
+
+Two strategies:
+
+- **All workspaces on `"desktop": 1`** — workspaces act as *scenes* that rearrange Desktop 1. Because windows never need to change Spaces, the macOS moved-window limitation (below) never triggers, and buttons behave identically whether apps are cold or already running. Recommended when you keep apps running all day.
+- **One desktop per workspace** (`desktop` 1, 2, 3, …) — real desktop separation. Works perfectly when apps start fresh (windows are created on the target Space), but apps *already running* on another Space cannot be relocated by macOS: the workspace then arranges them where they are and an alert explains it.
+
 ## Behavior
 
 Applying a workspace switches to the target Space first (new windows open on the focused Space), then launches or focuses each app and applies its slot of the layout.
 
-> **macOS caveat:** on recent macOS versions, moving an *existing* window to another Space programmatically is unreliable (`hs.spaces.moveWindowToSpace` can report success without doing anything). AppLaunchScripts therefore switches Space before opening windows, and prefers opening a fresh window on the target Space over adopting one from another Space when the move fails.
+Duplicate protection for Chrome site windows spans **all desktops**: before opening a new window, the Spoon checks (via AppleScript, which sees every Space) whether the workspace's site windows already exist somewhere. If they all live on a different desktop — e.g. after desktops were rearranged or deleted — the workspace **falls back to that desktop**: it announces `Unable to open apps on "Desktop 7" — using "Desktop 3" where the windows already are`, switches there, and applies the layout to the existing windows instead of duplicating them. Repeated presses within 10 seconds are ignored (`… is still launching — press ignored`) so a nervous finger cannot spawn duplicates either.
+
+> **macOS caveat:** on recent macOS versions, moving an *existing* window to another Space programmatically is unreliable (`hs.spaces.moveWindowToSpace` can report success without doing anything). AppLaunchScripts therefore switches Space before opening windows, and prefers opening a fresh window on the target Space over adopting one from another Space when the move fails. When an app's window already exists on a different Space and cannot be moved (typical for `window`-matched apps like VS Code), an alert names the app — `"Code" already open on another Space — arranging it there` — and the layout is applied where the window lives. To truly relocate it, quit the app and press the workspace button again: freshly created windows land on the configured Space.
 
 ## Private workspaces
 

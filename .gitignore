@@ -3,3 +3,4 @@ AppLaunchScripts.spoon/availableWorkspaces.lua
 # Avoid sharing personal workspaces
 AppLaunchScripts.spoon/workspaces/personal*
 AppLaunchScripts.spoon/workspaces/private*
+AppLaunchScripts.spoon/workspaces/Private*

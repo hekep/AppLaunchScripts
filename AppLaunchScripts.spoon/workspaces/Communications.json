@@ -2,11 +2,15 @@
   "name": "Communications",
   "space": {
     "display": "current",
-    "index": 1
+    "desktop": 1
   },
   "layout": {
     "direction": "horizontal",
-    "widths": [33, 33, 34]
+    "widths": [
+      33,
+      33,
+      34
+    ]
   },
   "apps": [
     {

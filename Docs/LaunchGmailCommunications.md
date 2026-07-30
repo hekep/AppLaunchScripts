@@ -21,7 +21,7 @@ hs -c 'spoon.AppLaunchScripts:launchWorkspace("privateCommunications")'
   "name": "GmailCommunications",
   "space": {
     "display": "current",
-    "index": 2
+    "desktop": 2
   },
   "layout": {
     "direction": "horizontal",
@@ -31,12 +31,12 @@ hs -c 'spoon.AppLaunchScripts:launchWorkspace("privateCommunications")'
     {
       "name": "Chrome",
       "profile": "example_profile_one",
-      "www": "https://www.gmail.com"
+      "www": "https://mail.google.com/"
     },
     {
       "name": "Chrome",
       "profile": "example_profile_two",
-      "www": "https://www.gmail.com"
+      "www": "https://mail.google.com/"
     }
   ]
 }
@@ -52,10 +52,11 @@ Note the split identity: the **file name** (`privateCommunications`) marks it pr
 
 ## What happens on launch
 
-1. Space 2 ("Desktop 2") on the current display is resolved — **created automatically** if the display doesn't have a second Space yet.
+1. Desktop 2 on the current display is resolved — **created automatically** if the display doesn't have a second Space yet.
 2. The Space is switched to first (requires the Accessibility permission — see the README prerequisites, including the restart-after-granting note).
 3. For each app entry with a `profile` key: if a window of that Chrome profile already exists on the target Space it is re-used; otherwise a new window is opened with that profile and the `www` URL, landing directly on the target Space.
-4. Windows are laid out 50/50.
+4. **Tab restore:** in a re-used window the state is restored even if you have browsed away or closed tabs — the first tab whose URL matches the `www` site is re-activated, and if none is left, a new tab is opened on the site. (Requires the macOS Automation permission Hammerspoon → Google Chrome; macOS prompts on first use. Note the config uses `https://mail.google.com/` — the post-redirect URL — so open Gmail tabs are recognizable by URL.)
+5. Windows are laid out 50/50.
 
 > **macOS caveat:** on recent macOS versions, moving an *existing* window to another Space programmatically is unreliable (`hs.spaces.moveWindowToSpace` can report success without doing anything). That is why the Spoon switches Space before opening windows, and prefers a fresh window on the target Space over adopting one from another Space when the move fails.
 

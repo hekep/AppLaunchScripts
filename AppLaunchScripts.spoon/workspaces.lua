@@ -23,6 +23,14 @@ return function(obj)
         return (name:gsub("[^%w]", ""))
     end
 
+    -- Alert + console print, so problems show up on screen AND in
+    -- `hs -c` output / the Hammerspoon console. Error notifications
+    -- stay visible for 8 seconds.
+    local function warn(message)
+        hs.alert.show(message, 8)
+        print("AppLaunchScripts: " .. message)
+    end
+
     local function contains(list, value)
         for _, item in ipairs(list or {}) do
             if item == value then
@@ -52,11 +60,57 @@ return function(obj)
         return hs.screen.find(spec) or hs.screen.mainScreen()
     end
 
-    -- Turn {direction = "horizontal", widths = {33, 33, 34}} into one unit
-    -- rect per app. Missing sizes fall back to an even split.
-    local function layoutUnits(layout, count)
+    -- Validate the widths/heights array: it must be an array of positive
+    -- numbers, one per app, summing to at most 100. Anything else is
+    -- reported and every app gets an equal share instead.
+    local function validatedSizes(layout, count, workspaceName)
         local direction = (layout and layout.direction) or "horizontal"
+        local key = (direction == "vertical") and "heights" or "widths"
         local sizes = layout and (layout.widths or layout.heights)
+
+        if sizes == nil then
+            return nil -- even split is the documented default; no complaint
+        end
+
+        local problem
+
+        if type(sizes) ~= "table" then
+            problem = key .. " is not an array"
+        elseif #sizes ~= count then
+            problem = string.format(
+                "%s has %d values for %d apps", key, #sizes, count)
+        else
+            local sum = 0
+
+            for _, value in ipairs(sizes) do
+                if type(value) ~= "number" or value <= 0 then
+                    problem = key .. " must contain positive numbers only"
+                    break
+                end
+
+                sum = sum + value
+            end
+
+            if not problem and sum > 100 then
+                problem = string.format(
+                    "%s sum to %d%% (over 100%%)", key, math.floor(sum + 0.5))
+            end
+        end
+
+        if problem then
+            warn(string.format('Workspace "%s": %s — using %d%% each',
+                workspaceName or "?", problem, math.floor(100 / count)))
+            return nil
+        end
+
+        return sizes
+    end
+
+    -- Turn {direction = "horizontal", widths = {33, 33, 34}} into one unit
+    -- rect per app. Missing or invalid sizes fall back to an even split.
+    local function layoutUnits(layout, count, workspaceName)
+        local direction = (layout and layout.direction) or "horizontal"
+        local sizes = validatedSizes(layout, count, workspaceName)
 
         local units = {}
         local offset = 0
@@ -130,8 +184,17 @@ return function(obj)
             hs.spaces.moveWindowToSpace(window, spaceID)
 
             if not onSpace(window, spaceID) then
-                hs.alert.show(
-                    "macOS refused to move a window to the target Space")
+                -- macOS silently refuses to move established windows
+                -- between Spaces; only freshly created windows move.
+                -- The window is arranged where it is instead — quitting
+                -- the app and relaunching the workspace puts it on the
+                -- configured Space.
+                local appName = window:application()
+                    and window:application():name() or "window"
+
+                warn(string.format(
+                    '"%s" already open on another Space — arranging it there (quit the app and relaunch to relocate)',
+                    appName))
             end
         end
 
@@ -143,74 +206,303 @@ return function(obj)
         end
     end
 
-    -- Wait until a window of the given Chrome profile exists (on the
-    -- given Space, when spaceID is set). Falls back to the main window:
-    -- with a single active profile Chrome puts no profile suffix in
-    -- window titles, so no title ever matches.
-    local function waitForProfileWindow(app, profileName, spaceID, callback, attempts)
-        attempts = attempts or 80
+    -- Mark a window as taken by one workspace entry, so a second entry
+    -- using the same Chrome profile gets its own window instead.
+    local function claimWindow(claimed, window)
+        local id = window:id()
 
-        local window = obj._findProfileWindow(app, profileName, spaceID)
+        if id then
+            claimed[id] = true
+        end
+    end
 
-        if window then
-            callback(window)
+    local function siteHost(url)
+        local host = url:match("^%a[%w+.-]*://([^/]+)") or url
+
+        return (host:gsub("^www%.", ""))
+    end
+
+    -- One AppleScript round-trip: every Chrome window's name (= active
+    -- tab title) plus all its tab URLs. Used to tell same-profile
+    -- windows apart by the site they hold.
+    local function chromeWindowsInfo()
+        local ok, result = hs.osascript.applescript([[
+            set out to ""
+            tell application "Google Chrome"
+                repeat with w in every window
+                    set urlList to ""
+                    repeat with t in tabs of w
+                        set urlList to urlList & (URL of t) & " "
+                    end repeat
+                    set out to out & (name of w) & "\t" & urlList & "\n"
+                end repeat
+            end tell
+            return out
+        ]])
+
+        if not ok or type(result) ~= "string" then
+            return nil
+        end
+
+        local info = {}
+
+        for line in result:gmatch("[^\n]+") do
+            local name, urls = line:match("^(.-)\t(.*)$")
+
+            if name then
+                table.insert(info, { name = name, urls = urls })
+            end
+        end
+
+        return info
+    end
+
+    -- The hs window title is "<active tab> - Google Chrome – <profile>";
+    -- the AppleScript window name is just "<active tab>".
+    local function windowNamePrefix(window)
+        local title = window:title() or ""
+        local cut = title:find(" %- Google Chrome")
+
+        return cut and title:sub(1, cut - 1) or title
+    end
+
+    local function windowHasSite(window, host, info)
+        if not info then
+            return false
+        end
+
+        local prefix = windowNamePrefix(window)
+
+        for _, entry in ipairs(info) do
+            if entry.name == prefix and entry.urls:find(host, 1, true) then
+                return true
+            end
+        end
+
+        return false
+    end
+
+    -- All unclaimed windows of a profile on a Space.
+    local function profileWindowsOnSpace(app, profileName, spaceID, claimed)
+        local windows = {}
+        local excluded = {}
+
+        for id in pairs(claimed) do
+            excluded[id] = true
+        end
+
+        while true do
+            local window = obj._findProfileWindow(
+                app, profileName, spaceID, excluded)
+
+            if not window then
+                break
+            end
+
+            table.insert(windows, window)
+
+            local id = window:id()
+
+            if not id then
+                break
+            end
+
+            excluded[id] = true
+        end
+
+        return windows
+    end
+
+    -- Pick the window that actually holds the wanted site; a window is
+    -- "the Instagram window" only if one of its tabs is on instagram.
+    local function pickSiteWindow(candidates, host)
+        if #candidates == 0 then
+            return nil
+        end
+
+        if not host then
+            return candidates[1]
+        end
+
+        local info = chromeWindowsInfo()
+
+        for _, window in ipairs(candidates) do
+            if windowHasSite(window, host, info) then
+                return window
+            end
+        end
+
+        return nil
+    end
+
+    -- Wait until an unclaimed window of the given Chrome profile holding
+    -- the given site exists on the Space. Site-aware so that two waiters
+    -- for the same profile (e.g. Instagram and MeWe windows opening
+    -- side by side) never grab each other's window. Falls back to any
+    -- unclaimed profile window, then the main window.
+    local function waitForProfileWindow(app, profileName, spaceID, claimed, host, callback, attempts)
+        attempts = attempts or 60
+
+        local candidates = profileWindowsOnSpace(app, profileName, spaceID, claimed)
+        local pick = pickSiteWindow(candidates, host)
+
+        if pick then
+            claimWindow(claimed, pick)
+            callback(pick)
             return
         end
 
         if attempts <= 0 then
-            local fallback = app:mainWindow()
+            local fallback = candidates[1] or app:mainWindow()
 
-            if fallback then
+            if fallback and not (fallback:id() and claimed[fallback:id()]) then
+                claimWindow(claimed, fallback)
                 callback(fallback)
             else
-                hs.alert.show("No window found for Chrome profile " .. profileName)
+                warn("No window found for Chrome profile " .. profileName)
             end
 
             return
         end
 
-        hs.timer.doAfter(0.15, function()
-            waitForProfileWindow(app, profileName, spaceID, callback, attempts - 1)
+        hs.timer.doAfter(0.25, function()
+            waitForProfileWindow(app, profileName, spaceID, claimed, host, callback, attempts - 1)
         end)
     end
 
+    -- Restore the configured site inside an existing Chrome window:
+    -- activate the first tab whose URL contains the site's host, or open
+    -- a new tab on the site when no such tab exists. The AppleScript
+    -- window is identified by the active-tab title, which the macOS
+    -- window title (as seen by Hammerspoon) starts with. Requires the
+    -- macOS Automation permission (Hammerspoon -> Google Chrome).
+    local function ensureChromeTab(window, url)
+        local host = siteHost(url)
+
+        -- Among windows whose name matches, prefer the one that already
+        -- holds the site — duplicate names across desktops otherwise
+        -- send the tab to the wrong window.
+        local script = string.format([[
+            set hsTitle to %q
+            set siteHost to %q
+            set targetURL to %q
+            set targetIdx to 0
+            set backupIdx to 0
+            tell application "Google Chrome"
+                repeat with i from 1 to count of windows
+                    if hsTitle starts with (name of window i) then
+                        set found to false
+                        repeat with j from 1 to count of tabs of window i
+                            if (URL of tab j of window i) contains siteHost then
+                                set found to true
+                            end if
+                        end repeat
+                        if found and targetIdx is 0 then
+                            set targetIdx to i
+                        end if
+                        if backupIdx is 0 then
+                            set backupIdx to i
+                        end if
+                    end if
+                end repeat
+                if targetIdx is 0 then
+                    set targetIdx to backupIdx
+                end if
+                if targetIdx is 0 then
+                    return "window not found"
+                end if
+                repeat with j from 1 to count of tabs of window targetIdx
+                    if (URL of tab j of window targetIdx) contains siteHost then
+                        set active tab index of window targetIdx to j
+                        return "activated existing tab"
+                    end if
+                end repeat
+                make new tab at end of tabs of window targetIdx with properties {URL:targetURL}
+                return "opened new tab"
+            end tell
+        ]], window:title() or "", host, url)
+
+        local ok, result = hs.osascript.applescript(script)
+
+        if not ok then
+            warn("Chrome tab restore failed — is the Automation permission "
+                .. "(Hammerspoon → Google Chrome) granted?")
+            return nil
+        end
+
+        return result
+    end
+
     -- One app entry with a "profile" key means Google Chrome with that
-    -- profile; "www" optionally opens a URL in the new window.
-    local function launchChromeProfileIntoSpace(appConfig, screen, spaceID, unit)
+    -- profile; "www" optionally opens a URL in the new window. Windows
+    -- are managed per Space: a profile window on the target Space is
+    -- re-used (tab restored), any other Space's windows are left alone
+    -- and a fresh window is opened instead — macOS cannot move
+    -- established windows between Spaces, and adopting one could steal
+    -- a window that belongs to a different workspace's desktop.
+    local function launchChromeProfileIntoSpace(appConfig, screen, spaceID, unit, context)
+        local claimed = context.claimed
         local dir, profileName = obj._resolveChromeProfile(
             obj:chromeProfiles(), appConfig.profile)
 
         if not dir then
-            hs.alert.show("Unknown Chrome profile: " .. appConfig.profile)
-            return
+            warn("Unknown Chrome profile: " .. appConfig.profile)
+            return "failed"
         end
 
+        local host = appConfig.www and siteHost(appConfig.www) or nil
         local app = obj._getApp("Google Chrome")
 
         if app then
-            -- Prefer a profile window already on the target Space; a
-            -- window elsewhere is used only if macOS lets us move it.
-            local existing = obj._findProfileWindow(app, profileName, spaceID)
+            local candidates = profileWindowsOnSpace(
+                app, profileName, spaceID, claimed)
+            local pick = pickSiteWindow(candidates, host)
 
-            if existing then
-                placeWindow(existing, screen, spaceID, unit)
-                return
+            -- No window holds the site: adopting a generic window is
+            -- only safe when this profile has a single entry in the
+            -- workspace — with several entries, an empty-looking window
+            -- may belong to a sibling site.
+            if not pick and #candidates > 0
+                and (context.profileCounts[dir] or 0) <= 1 then
+                pick = candidates[1]
             end
 
-            local elsewhere = obj._findProfileWindow(app, profileName)
+            if pick then
+                claimWindow(claimed, pick)
 
-            if elsewhere then
-                hs.spaces.moveWindowToSpace(elsewhere, spaceID)
-
-                if onSpace(elsewhere, spaceID) then
-                    placeWindow(elsewhere, screen, spaceID, unit)
-                    return
+                if appConfig.www then
+                    ensureChromeTab(pick, appConfig.www)
                 end
+
+                placeWindow(pick, screen, spaceID, unit)
+                return "placed"
+            end
+        end
+
+        -- Never duplicate a site window that already exists on another
+        -- desktop: AppleScript sees every window regardless of Space
+        -- (the accessibility API does not). If the whole config's quota
+        -- for this site is already open somewhere, report it so
+        -- applyWorkspace() can fall back to that desktop.
+        if host then
+            local info = chromeWindowsInfo()
+            local existingCount = 0
+
+            for _, entry in ipairs(info or {}) do
+                if entry.urls:find(host, 1, true) then
+                    existingCount = existingCount + 1
+                end
+            end
+
+            if existingCount >= (context.hostCounts[host] or 1) then
+                return "elsewhere"
             end
         end
 
         -- Open a fresh window; it appears on the currently focused Space,
-        -- which applyWorkspace() has already switched to.
+        -- which applyWorkspace() has already switched to. Openings are
+        -- staggered: near-simultaneous open commands can collapse into
+        -- tabs of a single window.
         local args = {
             "-na", "Google Chrome",
             "--args",
@@ -222,30 +514,41 @@ return function(obj)
             table.insert(args, appConfig.www)
         end
 
-        hs.task.new("/usr/bin/open", nil, args):start()
+        local delay = context.opens * 0.7
+        context.opens = context.opens + 1
+
+        hs.timer.doAfter(delay, function()
+            hs.task.new("/usr/bin/open", nil, args):start()
+        end)
 
         obj._waitForApp("Google Chrome", function(chromeApp)
-            waitForProfileWindow(chromeApp, profileName, spaceID, function(window)
+            waitForProfileWindow(chromeApp, profileName, spaceID, claimed, host, function(window)
                 placeWindow(window, screen, spaceID, unit)
             end)
         end)
+
+        return "opened"
     end
 
     -- Find a window whose title contains the given text (for apps like
     -- VS Code that host several project windows in one process, the
-    -- title is the only thing identifying the project).
+    -- title is the only thing identifying the project). Also returns
+    -- how many windows matched, so ambiguous fragments can be reported.
     local function findTitledWindow(app, needle)
         local lowered = needle:lower()
+        local found = nil
+        local matches = 0
 
         for _, window in ipairs(app:allWindows()) do
             local title = (window:title() or ""):lower()
 
             if title:find(lowered, 1, true) then
-                return window
+                matches = matches + 1
+                found = found or window
             end
         end
 
-        return nil
+        return found, matches
     end
 
     -- Wait until a window matching appConfig.window exists; falls back
@@ -266,7 +569,7 @@ return function(obj)
             if fallback then
                 callback(fallback)
             else
-                hs.alert.show("No window found matching: " .. needle)
+                warn("No window found matching: " .. needle)
             end
 
             return
@@ -285,17 +588,23 @@ return function(obj)
     -- shared between all VS Code project windows, and rot after
     -- restarts). When appConfig.window matches an existing window title
     -- the launch step is skipped entirely and the window is just placed.
-    local function launchIntoSpace(appConfig, screen, spaceID, unit)
+    local function launchIntoSpace(appConfig, screen, spaceID, unit, context)
         if appConfig.profile then
-            launchChromeProfileIntoSpace(appConfig, screen, spaceID, unit)
-            return
+            return launchChromeProfileIntoSpace(
+                appConfig, screen, spaceID, unit, context)
         end
 
         local appName = realAppName(appConfig.name)
         local app = obj._getApp(appName)
 
         if app and appConfig.window then
-            local window = findTitledWindow(app, appConfig.window)
+            local window, matches = findTitledWindow(app, appConfig.window)
+
+            if matches > 1 then
+                warn(string.format(
+                    'Window title "%s" matches %d %s windows — using the first; make it more unique',
+                    appConfig.window, matches, appName))
+            end
 
             if window then
                 app:activate(true)
@@ -319,7 +628,7 @@ return function(obj)
                 -- launches must not spawn overlapping processes.
                 hs.task.new("/bin/zsh", nil, { "-lc", appConfig.cmd }):start()
             elseif not app and not hs.application.launchOrFocus(appName) then
-                hs.alert.show("Could not launch " .. appName)
+                warn('"' .. appName .. '" not installed')
                 return
             end
         end
@@ -392,7 +701,7 @@ return function(obj)
         local file = io.open(path, "r")
 
         if not file then
-            hs.alert.show("No workspace config: " .. name)
+            warn("No workspace config: " .. name)
             return nil
         end
 
@@ -400,7 +709,7 @@ return function(obj)
         file:close()
 
         if not config then
-            hs.alert.show("Invalid JSON in workspace: " .. name)
+            warn("Invalid JSON in workspace: " .. name)
             return nil
         end
 
@@ -419,16 +728,35 @@ return function(obj)
     ---
     --- Returns:
     ---  * `true` when the workspace was applied, `false` on a config error
+    -- Repeated presses while a launch is still settling would spawn
+    -- extra windows and tabs; ignore presses within the lockout window.
+    local launchTimes = {}
+    local LAUNCH_LOCKOUT = 10
+
     function obj:applyWorkspace(config)
+        local now = hs.timer.secondsSinceEpoch()
+        local last = launchTimes[config.name]
+
+        if last and (now - last) < LAUNCH_LOCKOUT then
+            warn(string.format(
+                'Workspace "%s" is still launching — press ignored (wait %ds)',
+                config.name, math.ceil(LAUNCH_LOCKOUT - (now - last))))
+            return false
+        end
+
+        launchTimes[config.name] = now
+
         hs.alert.show("Launching " .. config.name)
 
         -- 1. Resolve the target display
         local screen = resolveDisplay(config.space and config.space.display)
 
         -- 2. Resolve the target Space, creating missing Spaces on demand
-        -- so a config can declare an index beyond what exists yet
+        -- so a config can declare a desktop beyond what exists yet.
+        -- "desktop" is the preferred key; "index" is the legacy alias.
         local spaceIDs = hs.spaces.spacesForScreen(screen) or {}
-        local index = (config.space and config.space.index) or 1
+        local index = (config.space
+            and (config.space.desktop or config.space.index)) or 1
 
         while #spaceIDs < index do
             local ok = hs.spaces.addSpaceToScreen(screen, true)
@@ -446,7 +774,7 @@ return function(obj)
         local spaceID = spaceIDs[index]
 
         if not spaceID then
-            hs.alert.show(string.format(
+            warn(string.format(
                 "No Space %d on %s (%d available)",
                 index, screen:name(), #spaceIDs))
             return false
@@ -454,11 +782,140 @@ return function(obj)
 
         -- 4.-6. Launch or focus each app, move its window to the Space,
         -- and apply its slot of the layout.
-        local function launchApps()
-            local units = layoutUnits(config.layout, #(config.apps or {}))
+        local function launchApps(runSpaceID)
+            local units = layoutUnits(
+                config.layout, #(config.apps or {}), config.name)
+
+            -- Per-run state: claimed windows (a second entry with the
+            -- same Chrome profile gets its own window), how often each
+            -- profile and site appears, and an open counter for
+            -- staggering.
+            local context = {
+                claimed = {},
+                profileCounts = {},
+                hostCounts = {},
+                opens = 0,
+            }
+
+            for _, appConfig in ipairs(config.apps or {}) do
+                if appConfig.profile then
+                    local dir = obj._resolveChromeProfile(
+                        obj:chromeProfiles(), appConfig.profile)
+
+                    if dir then
+                        context.profileCounts[dir] =
+                            (context.profileCounts[dir] or 0) + 1
+                    end
+
+                    if appConfig.www then
+                        local host = siteHost(appConfig.www)
+                        context.hostCounts[host] =
+                            (context.hostCounts[host] or 0) + 1
+                    end
+                end
+            end
+
+            local wwwEntries = 0
+            local elsewhereCount = 0
 
             for i, appConfig in ipairs(config.apps or {}) do
-                launchIntoSpace(appConfig, screen, spaceID, units[i])
+                local status = launchIntoSpace(
+                    appConfig, screen, runSpaceID, units[i], context)
+
+                if appConfig.profile and appConfig.www then
+                    wwwEntries = wwwEntries + 1
+
+                    if status == "elsewhere" then
+                        elsewhereCount = elsewhereCount + 1
+                    end
+                end
+            end
+
+            return wwwEntries, elsewhereCount
+        end
+
+        -- Does this Space hold at least one of the workspace's site
+        -- windows? (Checked while the Space is focused, because the
+        -- accessibility API only sees the current Space.)
+        local function probeSpace(sid)
+            local app = obj._getApp("Google Chrome")
+
+            if not app then
+                return false
+            end
+
+            for _, appConfig in ipairs(config.apps or {}) do
+                if appConfig.profile and appConfig.www then
+                    local dir, profileName = obj._resolveChromeProfile(
+                        obj:chromeProfiles(), appConfig.profile)
+
+                    if dir then
+                        local candidates = profileWindowsOnSpace(
+                            app, profileName, sid, {})
+
+                        if pickSiteWindow(candidates, siteHost(appConfig.www)) then
+                            return true
+                        end
+                    end
+                end
+            end
+
+            return false
+        end
+
+        -- The workspace's windows exist, but on some other desktop that
+        -- macOS won't let us move them away from. Visit the desktops
+        -- until they are found and apply the workspace there.
+        local function fallbackSearch()
+            local order = {}
+
+            for i, sid in ipairs(spaceIDs) do
+                if sid ~= spaceID then
+                    table.insert(order, { index = i, id = sid })
+                end
+            end
+
+            local pos = 0
+
+            local function nextSpace()
+                pos = pos + 1
+
+                if pos > #order then
+                    warn(string.format(
+                        'Unable to open apps on "Desktop %d" — existing windows could not be located',
+                        index))
+                    return
+                end
+
+                local target = order[pos]
+
+                hs.spaces.gotoSpace(target.id)
+
+                hs.timer.doAfter(1.2, function()
+                    if hs.spaces.focusedSpace() == target.id
+                        and probeSpace(target.id) then
+                        warn(string.format(
+                            'Unable to open apps on "Desktop %d" — using "Desktop %d" where the windows already are',
+                            index, target.index))
+                        launchApps(target.id)
+                    else
+                        nextSpace()
+                    end
+                end)
+            end
+
+            nextSpace()
+        end
+
+        local function runOnTarget()
+            local wwwEntries, elsewhereCount = launchApps(spaceID)
+
+            if wwwEntries > 0 and elsewhereCount == wwwEntries then
+                fallbackSearch()
+            elseif elsewhereCount > 0 then
+                warn(string.format(
+                    'Workspace "%s": %d site window(s) already open on another desktop — not duplicated',
+                    config.name, elsewhereCount))
             end
         end
 
@@ -467,30 +924,41 @@ return function(obj)
         -- macOS that is the only reliable way to get them onto the
         -- target Space (moveWindowToSpace() silently fails there).
         if hs.spaces.focusedSpace() == spaceID then
-            launchApps()
+            runOnTarget()
             return true
         end
 
         local ok, err = hs.spaces.gotoSpace(spaceID)
 
         if not ok then
-            -- Usually a missing Accessibility permission. Proceed on the
-            -- current Space so apps and layout still come up.
-            hs.alert.show("Could not switch Space: " .. tostring(err))
-            launchApps()
-            return true
+            -- Usually a missing Accessibility permission. Better no
+            -- action than windows created on the wrong desktop.
+            warn("Could not switch Space: " .. tostring(err))
+            return false
         end
 
-        local attempts = 20
+        local attempts = 40
 
         local function waitForSwitch()
-            if hs.spaces.focusedSpace() == spaceID or attempts <= 0 then
-                launchApps()
+            if hs.spaces.focusedSpace() == spaceID then
+                runOnTarget()
                 return
             end
 
             attempts = attempts - 1
-            hs.timer.doAfter(0.15, waitForSwitch)
+
+            if attempts <= 0 then
+                warn(string.format(
+                    'Workspace "%s": Space switch did not complete — aborting to avoid duplicate windows',
+                    config.name))
+                return
+            end
+
+            if attempts == 20 then
+                hs.spaces.gotoSpace(spaceID)
+            end
+
+            hs.timer.doAfter(0.25, waitForSwitch)
         end
 
         waitForSwitch()
@@ -578,7 +1046,7 @@ return function(obj)
         local file = io.open(generatedFile(), "w")
 
         if not file then
-            hs.alert.show("Cannot write " .. generatedFile())
+            warn("Cannot write " .. generatedFile())
             return self
         end
 

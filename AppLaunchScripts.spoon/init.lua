@@ -7,7 +7,7 @@
 local obj = {}
 
 obj.name = "AppLaunchScripts"
-obj.version = "0.2.0"
+obj.version = "0.4.0"
 obj.author = "Heikki Pals"
 obj.homepage = "https://github.com/hekep/AppLaunchScripts"
 obj.license = "MIT"
@@ -90,7 +90,7 @@ local function resolveLayout(layouts, layoutName)
         end
     end
 
-    hs.alert.show("Unknown layout: " .. layoutName)
+    hs.alert.show("Unknown layout: " .. layoutName, 8)
     return nil
 end
 
@@ -114,7 +114,7 @@ local function waitForApp(appName, callback, attempts)
     end
 
     if attempts <= 0 then
-        hs.alert.show("Could not find " .. appName)
+        hs.alert.show("Could not find " .. appName, 8)
         return
     end
 
@@ -137,7 +137,7 @@ local function waitForWindow(app, callback, attempts)
     end
 
     if attempts <= 0 then
-        hs.alert.show("No window found for " .. app:name())
+        hs.alert.show("No window found for " .. app:name(), 8)
         return
     end
 
@@ -163,7 +163,7 @@ function obj:focusOrLaunch(appName, layoutName)
         local launched = hs.application.launchOrFocus(appName)
 
         if not launched then
-            hs.alert.show("Could not launch " .. appName)
+            hs.alert.show('"' .. appName .. '" not installed', 8)
             return false
         end
     end
@@ -210,16 +210,19 @@ end
 -- account name differs from the profile name, "Page - Google Chrome –
 -- Alice (Work)". Match the suffix only: a plain substring search for
 -- "Alice" would also hit the parenthesised form of a different profile.
--- The optional spaceID restricts the search to windows on that Space.
-local function findProfileWindow(app, name, spaceID)
+-- The optional spaceID restricts the search to windows on that Space;
+-- the optional excluded set ({[windowID] = true}) skips windows already
+-- claimed by another workspace entry.
+local function findProfileWindow(app, name, spaceID, excluded)
     local bare = "– " .. name
     local parenthesised = "(" .. name .. ")"
 
     for _, window in ipairs(app:allWindows()) do
         local title = window:title() or ""
 
-        if title:sub(-#bare) == bare
-            or title:sub(-#parenthesised) == parenthesised then
+        if (title:sub(-#bare) == bare
+            or title:sub(-#parenthesised) == parenthesised)
+            and not (excluded and window:id() and excluded[window:id()]) then
             if not spaceID then
                 return window
             end
@@ -284,7 +287,7 @@ function obj:chrome(profile, layoutName)
     local dir, name = resolveChromeProfile(self:chromeProfiles(), profile)
 
     if not dir then
-        hs.alert.show("Unknown Chrome profile: " .. profile)
+        hs.alert.show("Unknown Chrome profile: " .. profile, 8)
         return false
     end
 
@@ -461,7 +464,7 @@ function obj:start()
             if params and params.app then
                 self:focusOrLaunch(params.app, params.layout)
             else
-                hs.alert.show("focusOrLaunch URL needs ?app=<name>")
+                hs.alert.show("focusOrLaunch URL needs ?app=<name>", 8)
             end
         end,
 
@@ -474,7 +477,7 @@ function obj:start()
             if params and params.name then
                 self:launchWorkspace(params.name)
             else
-                hs.alert.show("launchWorkspace URL needs ?name=<workspace>")
+                hs.alert.show("launchWorkspace URL needs ?name=<workspace>", 8)
             end
         end,
     }

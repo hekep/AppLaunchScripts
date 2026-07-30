@@ -21,7 +21,7 @@ hs -c 'spoon.AppLaunchScripts:launchWorkspace("Communications")'
   "name": "Communications",
   "space": {
     "display": "current",
-    "index": 1
+    "desktop": 1
   },
   "layout": {
     "direction": "horizontal",
@@ -46,7 +46,7 @@ Because the file exists, the Spoon generates the `launchCommunications()` method
 ## What happens on launch
 
 1. The target display is resolved (`"current"` = the display with the focused window).
-2. Space 1 ("Desktop 1") on that display is resolved — missing Spaces would be created automatically.
+2. Desktop 1 on that display is resolved — missing Spaces would be created automatically.
 3. The Space is switched to first, so new windows open directly on it.
 4. Each app is launched or focused; cold starts are waited for (Discord's updater can take 15+ seconds — the Spoon waits).
 5. Each window is placed into its slot: Thunderbird 0–33%, Slack 33–66%, Discord 66–100%.
