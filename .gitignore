@@ -4,3 +4,7 @@ AppLaunchScripts.spoon/availableWorkspaces.lua
 AppLaunchScripts.spoon/workspaces/personal*
 AppLaunchScripts.spoon/workspaces/private*
 AppLaunchScripts.spoon/workspaces/Private*
+# Workspace run logs
+logs/
+# macOS cruft
+.DS_Store

@@ -23,12 +23,75 @@ return function(obj)
         return (name:gsub("[^%w]", ""))
     end
 
+    -- ====================== per-run logging ==========================
+    -- Every workspace press writes its own log file:
+    -- logs/<Name>_WS_<unixTimestamp>.log — every alert verbatim, each
+    -- stage activation/pass, and the process exit reason.
+    local currentRunLog = nil
+
+    local function logsDir()
+        return obj.spoonPath .. "logs/"
+    end
+
+    -- Run logging is opt-in via config/config.json:
+    --   { "workSpaceRunLogs": true }
+    -- Ships as false; set true locally while developing workspaces.
+    -- Read fresh on every run so toggling needs no reload.
+    local function runLogsEnabled()
+        local file = io.open(obj.spoonPath .. "config/config.json", "r")
+
+        if not file then
+            return false
+        end
+
+        local config = hs.json.decode(file:read("*a"))
+        file:close()
+
+        return config ~= nil and config.workSpaceRunLogs == true
+    end
+
+    local function runLog(message)
+        if not currentRunLog then
+            return
+        end
+
+        local file = io.open(currentRunLog, "a")
+
+        if not file then
+            return
+        end
+
+        file:write(os.date("%Y-%m-%d %H:%M:%S") .. "  " .. message .. "\n")
+        file:close()
+    end
+
+    local function startRunLog(name)
+        if not runLogsEnabled() then
+            currentRunLog = nil
+            return
+        end
+
+        local now = hs.timer.secondsSinceEpoch()
+        local seconds = math.floor(now)
+        local micro = math.floor((now - seconds) * 1000000)
+
+        currentRunLog = string.format("%s%s_WS_%d_%06d.log",
+            logsDir(), methodSuffix(name or "Workspace"), seconds, micro)
+        runLog(string.format('=== Workspace "%s" run started ===', name))
+    end
+
+    local function endRunLog(reason)
+        runLog("PROCESS EXIT: " .. reason)
+    end
+
     -- Alert + console print, so problems show up on screen AND in
     -- `hs -c` output / the Hammerspoon console. Error notifications
-    -- stay visible for 8 seconds.
+    -- stay visible for 8 seconds. Every alert also goes verbatim into
+    -- the current run log.
     local function warn(message)
         hs.alert.show(message, 8)
         print("AppLaunchScripts: " .. message)
+        runLog("ALERT: " .. message)
     end
 
     local function contains(list, value)
@@ -295,25 +358,37 @@ return function(obj)
         return cut and title:sub(1, cut - 1) or title
     end
 
-    -- Does the window hold a tab on any of the entry's sites?
-    local function windowHasSite(window, keys, info)
+    -- How many of the entry's sites does the window hold, and how many
+    -- tabs does it have in total?
+    local function windowSiteHits(window, keys, info)
         if not info then
-            return false
+            return 0, 0
         end
 
         local prefix = windowNamePrefix(window)
+        local bestHits = 0
+        local bestTabs = 0
 
         for _, entry in ipairs(info) do
             if entry.name == prefix then
+                local hits = 0
+
                 for _, key in ipairs(keys) do
                     if entry.urls:find(key, 1, true) then
-                        return true
+                        hits = hits + 1
                     end
+                end
+
+                local _, tabs = entry.urls:gsub(" ", "")
+
+                if hits > bestHits then
+                    bestHits = hits
+                    bestTabs = tabs
                 end
             end
         end
 
-        return false
+        return bestHits, bestTabs
     end
 
     -- All unclaimed windows of a profile on a Space.
@@ -358,15 +433,25 @@ return function(obj)
             return candidates[1]
         end
 
+        -- Score the candidates: the window holding the most of the
+        -- entry's sites wins; ties go to the window with the fewest
+        -- total tabs, so a dedicated site window beats a personal
+        -- window that merely contains one matching tab.
         local info = chromeWindowsInfo()
+        local best, bestHits, bestTabs
 
         for _, window in ipairs(candidates) do
-            if windowHasSite(window, keys, info) then
-                return window
+            local hits, tabs = windowSiteHits(window, keys, info)
+
+            if hits > 0 and (not best or hits > bestHits
+                or (hits == bestHits and tabs < bestTabs)) then
+                best = window
+                bestHits = hits
+                bestTabs = tabs
             end
         end
 
-        return nil
+        return best
     end
 
     -- Wait until an unclaimed window of the given Chrome profile holding
@@ -413,88 +498,145 @@ return function(obj)
     -- Restore the configured tabs inside an existing Chrome window: for
     -- every configured URL, keep the tab matching its site key or open a
     -- new tab when it is missing; finally activate the first URL's tab.
-    -- The target window is chosen by tab content (most matching site
-    -- keys wins) — title-name matching proved unreliable and once sent
-    -- a whole tab set into the wrong window.
-    local function ensureChromeTabs(window, urls)
+    -- The target window is matched by its screen bounds (Hammerspoon
+    -- knows the exact frame — deterministic even when several windows
+    -- share a title like "New Tab"), then by tab content (most matching
+    -- site keys wins), then — for single-URL entries only — by title.
+    -- ABSOLUTE TEMPLATE SYNC: the workspace config is a strict
+    -- template — tab position N must be URL N. Out-of-sync tabs are
+    -- rewritten in place, missing tabs are created, extra tabs are
+    -- deleted. Quarantined positions (chronically unstable sites) are
+    -- accepted as-is so the stages can still complete.
+    local function ensureChromeTabs(window, urls, skipKeys)
         local keyItems = {}
         local urlItems = {}
+        local skipItems = {}
 
         for _, url in ipairs(urls) do
-            table.insert(keyItems, string.format("%q", siteKey(url)))
+            local key = siteKey(url)
+
+            table.insert(keyItems, string.format("%q", key))
             table.insert(urlItems, string.format("%q", url))
+            table.insert(skipItems,
+                (skipKeys and skipKeys[key]) and '"1"' or '"0"')
         end
+
+        if #keyItems == 0 then
+            return "synced"
+        end
+
+        local frame = window:frame()
 
         local script = string.format([[
             set hsTitle to %q
             set siteKeys to {%s}
             set siteURLs to {%s}
+            set skipFlags to {%s}
             set allowNameFallback to %s
+            set fLeft to %d
+            set fTop to %d
+            set fRight to %d
+            set fBottom to %d
             set targetIdx to 0
+            set boundsIdx to 0
             set bestHits to 0
             set nameIdx to 0
             tell application "Google Chrome"
                 repeat with i from 1 to count of windows
-                    set hits to 0
-                    repeat with j from 1 to count of tabs of window i
-                        set tabURL to URL of tab j of window i
-                        repeat with k from 1 to count of siteKeys
-                            if tabURL contains (item k of siteKeys) then
-                                set hits to hits + 1
-                            end if
+                    try
+                        set b to bounds of window i
+                        if boundsIdx is 0 and (item 1 of b) > fLeft - 6 and (item 1 of b) < fLeft + 6 and (item 2 of b) > fTop - 6 and (item 2 of b) < fTop + 6 and (item 3 of b) > fRight - 6 and (item 3 of b) < fRight + 6 and (item 4 of b) > fBottom - 6 and (item 4 of b) < fBottom + 6 then
+                            set boundsIdx to i
+                        end if
+                        set hits to 0
+                        repeat with j from 1 to count of tabs of window i
+                            try
+                                set tabURL to URL of tab j of window i
+                                repeat with k from 1 to count of siteKeys
+                                    if tabURL contains (item k of siteKeys) then
+                                        set hits to hits + 1
+                                    end if
+                                end repeat
+                            end try
                         end repeat
-                    end repeat
-                    if hits > bestHits then
-                        set bestHits to hits
-                        set targetIdx to i
-                    end if
-                    if nameIdx is 0 and (name of window i) is not "" and hsTitle starts with (name of window i) then
-                        set nameIdx to i
-                    end if
+                        if hits > bestHits then
+                            set bestHits to hits
+                            set targetIdx to i
+                        end if
+                        if nameIdx is 0 and (name of window i) is not "" and hsTitle starts with (name of window i) then
+                            set nameIdx to i
+                        end if
+                    end try
                 end repeat
+                set matchMethod to "content"
+                if boundsIdx is not 0 then
+                    set targetIdx to boundsIdx
+                    set matchMethod to "bounds"
+                end if
                 if targetIdx is 0 and allowNameFallback then
                     set targetIdx to nameIdx
+                    set matchMethod to "title"
                 end if
                 if targetIdx is 0 then
                     return "window not found"
                 end if
-                set opened to 0
+                set changes to ""
                 repeat with k from 1 to count of siteKeys
-                    set haveIt to false
-                    repeat with j from 1 to count of tabs of window targetIdx
-                        if (URL of tab j of window targetIdx) contains (item k of siteKeys) then
-                            set haveIt to true
-                        end if
-                    end repeat
-                    if not haveIt then
+                    if (item k of skipFlags) is "1" then
+                        set changes to changes & "|skip:" & (item k of siteKeys)
+                    else if (count of tabs of window targetIdx) < k then
                         make new tab at end of tabs of window targetIdx with properties {URL:(item k of siteURLs)}
-                        set opened to opened + 1
+                        set changes to changes & "|new:" & (item k of siteKeys)
+                        delay 1
+                    else
+                        set inSync to false
+                        try
+                            if (URL of tab k of window targetIdx) contains (item k of siteKeys) then
+                                set inSync to true
+                            end if
+                        end try
+                        if inSync then
+                            set changes to changes & "|ok:" & (item k of siteKeys)
+                        else
+                            set URL of tab k of window targetIdx to (item k of siteURLs)
+                            set changes to changes & "|set:" & (item k of siteKeys)
+                            delay 1
+                        end if
                     end if
                 end repeat
-                repeat with j from 1 to count of tabs of window targetIdx
-                    if (URL of tab j of window targetIdx) contains (item 1 of siteKeys) then
-                        set active tab index of window targetIdx to j
-                        exit repeat
-                    end if
+                set extraCount to (count of tabs of window targetIdx) - (count of siteKeys)
+                repeat while (count of tabs of window targetIdx) > (count of siteKeys)
+                    close tab ((count of siteKeys) + 1) of window targetIdx
                 end repeat
-                return "restored (" & opened & " tab(s) reopened)"
+                if extraCount > 0 then
+                    set changes to changes & "|closed:" & extraCount
+                end if
+                set active tab index of window targetIdx to 1
+                return "synced[window " & targetIdx & " via " & matchMethod & "]" & changes
             end tell
         ]], window:title() or "",
             table.concat(keyItems, ", "),
             table.concat(urlItems, ", "),
+            table.concat(skipItems, ", "),
             -- With several URLs, a window without any matching tab is
             -- never a valid target — a blind name fallback once sent a
             -- whole tab set into the wrong window. A single-URL entry
             -- may legitimately have its only site tab closed, so the
             -- name fallback stays allowed there.
-            (#urls == 1) and "true" or "false")
+            (#urls == 1) and "true" or "false",
+            math.floor(frame.x), math.floor(frame.y),
+            math.floor(frame.x + frame.w), math.floor(frame.y + frame.h))
 
         local ok, result = hs.osascript.applescript(script)
 
         if not ok then
-            warn("Chrome tab restore failed — is the Automation permission "
-                .. "(Hammerspoon → Google Chrome) granted?")
-            return nil
+            local detail = type(result) == "table"
+                and (result.NSLocalizedDescription or hs.inspect(result))
+                or tostring(result)
+            runLog("ERROR: tab restore AppleScript failed: "
+                .. tostring(detail):sub(1, 300))
+            warn("Chrome tab restore failed — see run log")
+            return "failed"
         end
 
         return result
@@ -559,7 +701,23 @@ return function(obj)
 
             for _, entry in ipairs(info or {}) do
                 if entry.urls:find(primaryKey, 1, true) then
-                    existingCount = existingCount + 1
+                    local hits = 0
+
+                    for _, key in ipairs(keys) do
+                        if entry.urls:find(key, 1, true) then
+                            hits = hits + 1
+                        end
+                    end
+
+                    local _, tabs = entry.urls:gsub(" ", "")
+
+                    -- Only count windows that are mostly this entry's
+                    -- sites — a personal window that merely contains
+                    -- one matching tab must not block the workspace
+                    -- window from opening.
+                    if tabs > 0 and hits / tabs > 0.5 then
+                        existingCount = existingCount + 1
+                    end
                 end
             end
 
@@ -571,39 +729,137 @@ return function(obj)
         -- Open a fresh window; it appears on the currently focused Space,
         -- which applyWorkspace() has already switched to. Openings are
         -- staggered: near-simultaneous open commands can collapse into
-        -- tabs of a single window.
-        local args = {
-            "-na", "Google Chrome",
-            "--args",
-            "--profile-directory=" .. dir,
-            "--new-window",
-        }
+        -- tabs of a single window. When Chrome is already running, its
+        -- second-instance handoff sometimes routes the URLs into an
+        -- existing window — open with only the FIRST URL then (small
+        -- blast radius) and let the post-open tab restore add the rest,
+        -- bounds-targeted, into the right window.
+        -- Windows always open with exactly ONE URL: Chrome shreds
+        -- multi-URL open commands across arbitrary windows (verified
+        -- even on cold starts). The remaining tabs are built afterwards
+        -- by the AppleScript tab restore, which is deterministic.
+        local function fireOpen()
+            local args = {
+                "-na", "Google Chrome",
+                "--args",
+                "--profile-directory=" .. dir,
+                "--new-window",
+            }
 
-        for _, url in ipairs(urls or {}) do
-            table.insert(args, url)
+            if urls then
+                table.insert(args, urls[1])
+            end
+
+            hs.task.new("/usr/bin/open", nil, args):start()
         end
 
-        local delay = context.opens * 0.7
-        context.opens = context.opens + 1
+        -- SERIALIZED opens: overlapping open commands during Chrome's
+        -- startup get shredded across arbitrary windows, so each entry's
+        -- open fires only after the previous entry's window exists.
+        context.openQueue = context.openQueue or { jobs = {}, running = false }
+        local queue = context.openQueue
 
-        hs.timer.doAfter(delay, function()
-            hs.task.new("/usr/bin/open", nil, args):start()
-        end)
+        local function runNext()
+            if queue.running then
+                return
+            end
 
-        obj._waitForApp("Google Chrome", function(chromeApp)
-            waitForProfileWindow(chromeApp, profileName, spaceID, claimed, keys, function(window)
-                placeWindow(window, screen, spaceID, unit)
+            local job = table.remove(queue.jobs, 1)
 
-                -- Chrome occasionally routes some of the URLs into an
-                -- existing window instead of the new one; complete the
-                -- configured composition in the placed window.
-                if urls and #urls > 1 then
-                    hs.timer.doAfter(2, function()
-                        ensureChromeTabs(window, urls)
-                    end)
+            if not job then
+                if (queue.startedJobs or 0) > 0 then
+                    queue.startedJobs = 0
+
+                    if context.onQueueDrained then
+                        local chained = context.onQueueDrained
+                        context.onQueueDrained = nil
+                        chained()
+                    else
+                        endRunLog("Cold launch successful")
+                    end
+                end
+
+                return
+            end
+
+            queue.startedJobs = (queue.startedJobs or 0) + 1
+            queue.running = true
+
+            job(function()
+                queue.running = false
+                runNext()
+            end)
+        end
+
+        table.insert(queue.jobs, function(done)
+            local finished = false
+            local windowFound = false
+
+            local function finish()
+                if not finished then
+                    finished = true
+                    done()
+                end
+            end
+
+            fireOpen()
+            runLog(string.format("open fired: profile %s, url %s",
+                tostring(profileName), urls and urls[1] or "-"))
+
+            -- Re-issue once if the handoff dropped the command — but
+            -- never after the window has been found (it is claimed by
+            -- then, so re-checking the unclaimed candidates would
+            -- always look empty and spawn an extra window).
+            hs.timer.doAfter(8, function()
+                if finished or windowFound then
+                    return
+                end
+
+                local chromeNow = obj._getApp("Google Chrome")
+                local candidates = chromeNow and profileWindowsOnSpace(
+                    chromeNow, profileName, spaceID, claimed) or {}
+
+                if not pickSiteWindow(candidates, keys) then
+                    runLog("open re-issued (command appears dropped): "
+                        .. tostring(profileName))
+                    fireOpen()
                 end
             end)
+
+            obj._waitForApp("Google Chrome", function(chromeNow)
+                waitForProfileWindow(chromeNow, profileName, spaceID, claimed, keys, function(window)
+                    windowFound = true
+                    runLog("window found: " .. tostring(profileName)
+                        .. " — placing")
+                    -- One window at a time: place it, fill its tabs,
+                    -- give Chrome a second to settle — only then does
+                    -- the next window open.
+                    placeWindow(window, screen, spaceID, unit)
+
+                    hs.timer.doAfter(1.5, function()
+                        if urls and #urls > 1 then
+                            local result = ensureChromeTabs(window, urls)
+                            runLog("tabs filled: " .. tostring(profileName)
+                                .. " -> " .. tostring(result))
+                        end
+
+                        hs.timer.doAfter(1, finish)
+                    end)
+                end)
+            end)
+
+            -- Never gate the queue forever.
+            hs.timer.doAfter(40, function()
+                if not finished then
+                    runLog("job timeout (40s) — releasing open queue: "
+                        .. tostring(profileName))
+                end
+
+                finish()
+            end)
         end)
+
+        runNext()
 
         return "opened"
     end
@@ -656,6 +912,219 @@ return function(obj)
         hs.timer.doAfter(0.15, function()
             waitForTitledWindow(app, needle, callback, attempts - 1)
         end)
+    end
+
+    -- ================= window size toggling (config/windowSizes.json) =
+    -- A workspace whose layout widths match a profile's initialSizes
+    -- gains a size-cycling button: once everything is launched, tabs
+    -- are complete, and the desktop is already focused, each press
+    -- moves the windows to the next entry of toggleSizes (a 0 minimizes
+    -- that window), wrapping back to initialSizes.
+
+    local function loadSizeProfiles()
+        local file = io.open(obj.spoonPath .. "config/windowSizes.json", "r")
+
+        if not file then
+            return nil
+        end
+
+        local data = hs.json.decode(file:read("*a"))
+        file:close()
+
+        if not data then
+            warn("Invalid JSON in config/windowSizes.json")
+        end
+
+        return data
+    end
+
+    local function vectorsEqual(a, b)
+        if #a ~= #b then
+            return false
+        end
+
+        for i = 1, #a do
+            if a[i] ~= b[i] then
+                return false
+            end
+        end
+
+        return true
+    end
+
+    -- The workspace's widths select the profile whose initialSizes match.
+    local function findSizesProfile(widths)
+        if not widths then
+            return nil
+        end
+
+        for _, profile in ipairs(loadSizeProfiles() or {}) do
+            if type(profile.initialSizes) == "table"
+                and vectorsEqual(profile.initialSizes, widths) then
+                local toggles = {}
+
+                for _, toggle in ipairs(profile.toggleSizes or {}) do
+                    if type(toggle) == "table" and #toggle == #widths then
+                        table.insert(toggles, toggle)
+                    else
+                        warn("windowSizes.json: skipped a toggle with the wrong value count")
+                    end
+                end
+
+                if #toggles > 0 then
+                    return { initial = profile.initialSizes, toggles = toggles }
+                end
+            end
+        end
+
+        return nil
+    end
+
+    -- Current sizes of the workspace windows as percentages of the
+    -- screen (minimized windows count as 0).
+    local function measureSizes(windows, screen, direction)
+        local screenFrame = screen:frame()
+        local sizes = {}
+
+        for _, window in ipairs(windows) do
+            if window:isMinimized() then
+                table.insert(sizes, 0)
+            else
+                local frame = window:frame()
+
+                if direction == "vertical" then
+                    table.insert(sizes, frame.h / screenFrame.h * 100)
+                else
+                    table.insert(sizes, frame.w / screenFrame.w * 100)
+                end
+            end
+        end
+
+        return sizes
+    end
+
+    local function sizesMatch(measured, expected)
+        for i = 1, #expected do
+            local want = expected[i]
+            local have = measured[i] or -100
+
+            if want <= 0 then
+                if have > 5 then
+                    return false
+                end
+            elseif math.abs(have - want) > 6 then
+                return false
+            end
+        end
+
+        return true
+    end
+
+    -- Which known state are the windows in? 0 = initialSizes,
+    -- N = toggleSizes[N], nil = unrecognized.
+    local function matchSizesState(measured, profile)
+        if sizesMatch(measured, profile.initial) then
+            return 0
+        end
+
+        for i, toggle in ipairs(profile.toggles) do
+            if sizesMatch(measured, toggle) then
+                return i
+            end
+        end
+
+        return nil
+    end
+
+    -- Apply one sizes vector: zero-size windows are minimized, the rest
+    -- are laid out in order (zeros take no room).
+    local function applySizes(windows, screen, direction, sizes)
+        local offset = 0
+
+        for i, window in ipairs(windows) do
+            local size = sizes[i] or 0
+
+            if size <= 0 then
+                if not window:isMinimized() then
+                    window:minimize()
+                end
+            else
+                if window:isMinimized() then
+                    window:unminimize()
+                end
+
+                local unit
+
+                if direction == "vertical" then
+                    unit = { x = 0, y = offset, w = 1, h = size / 100 }
+                else
+                    unit = { x = offset, y = 0, w = size / 100, h = 1 }
+                end
+
+                window:focus()
+                enforceUnit(window, screen, unit)
+                offset = offset + size / 100
+            end
+        end
+    end
+
+    -- Find the already-open window for one app entry on the Space (a
+    -- minimized window counts), or nil when the entry still needs
+    -- launching. Used to decide between launch, repair, and size-toggle
+    -- presses.
+    local function resolveEntryWindow(appConfig, spaceID, claimed, context)
+        if appConfig.profile then
+            local dir, profileName = obj._resolveChromeProfile(
+                obj:chromeProfiles(), appConfig.profile)
+
+            if not dir then
+                return nil
+            end
+
+            local app = obj._getApp("Google Chrome")
+
+            if not app then
+                return nil
+            end
+
+            local urls = wwwList(appConfig.www)
+            local keys = urls and siteKeys(urls) or nil
+            local candidates = profileWindowsOnSpace(
+                app, profileName, spaceID, claimed)
+            local pick = pickSiteWindow(candidates, keys)
+
+            if not pick and #candidates > 0
+                and (context.profileCounts[dir] or 0) <= 1 then
+                pick = candidates[1]
+            end
+
+            if pick then
+                claimWindow(claimed, pick)
+            end
+
+            return pick, urls
+        end
+
+        local app = obj._getApp(realAppName(appConfig.name))
+
+        if not app then
+            return nil
+        end
+
+        local window
+
+        if appConfig.window then
+            window = findTitledWindow(app, appConfig.window)
+        else
+            window = app:mainWindow()
+        end
+
+        if window and (window:isMinimized() or onSpace(window, spaceID)) then
+            claimWindow(claimed, window)
+            return window
+        end
+
+        return nil
     end
 
     -- Launch or focus one app, then move its window to the target screen
@@ -811,20 +1280,58 @@ return function(obj)
     local launchTimes = {}
     local LAUNCH_LOCKOUT = 10
 
+    -- A cold launch in progress must never be overlapped by another
+    -- process for the same workspace (duplicate windows). Timestamped
+    -- so a crashed launch cannot lock the workspace forever.
+    local launchInFlight = {}
+    local LAUNCH_IN_FLIGHT_MAX = 120
+
+    -- Site keys that reopened on two consecutive presses never match
+    -- their tab (the site redirects elsewhere) — they get skipped with
+    -- a warning so the repair stage can finish instead of looping.
+    local unmatchableKeys = {}
+    local lastReopenedKeys = {}
+
     function obj:applyWorkspace(config)
         local now = hs.timer.secondsSinceEpoch()
         local last = launchTimes[config.name]
 
         if last and (now - last) < LAUNCH_LOCKOUT then
+            -- Each ignored press still gets its own log file, without
+            -- hijacking the in-flight run's log.
+            local inFlightLog = currentRunLog
+
+            startRunLog(config.name)
             warn(string.format(
                 'Workspace "%s" is still launching — press ignored (wait %ds)',
                 config.name, math.ceil(LAUNCH_LOCKOUT - (now - last))))
+            endRunLog("ABORTED: press ignored — previous launch still in progress (lockout)")
+            currentRunLog = inFlightLog
+
+            return false
+        end
+
+        local inFlightSince = launchInFlight[config.name]
+
+        if inFlightSince and (now - inFlightSince) < LAUNCH_IN_FLIGHT_MAX then
+            local prevLog = currentRunLog
+
+            startRunLog(config.name)
+            warn(string.format(
+                'Workspace "%s": cold launch still in progress — press ignored',
+                config.name))
+            endRunLog("ABORTED: cold launch already in progress (duplicate process avoided)")
+            currentRunLog = prevLog
+
             return false
         end
 
         launchTimes[config.name] = now
 
+        startRunLog(config.name)
+
         hs.alert.show("Launching " .. config.name)
+        runLog('NOTIFY: Launching ' .. (config.name or "?"))
 
         -- 1. Resolve the target display
         local screen = resolveDisplay(config.space and config.space.display)
@@ -845,22 +1352,38 @@ return function(obj)
 
             hs.alert.show(string.format(
                 "Created Space %d on %s", #spaceIDs + 1, screen:name()))
+            runLog(string.format(
+                "NOTIFY: Created Space %d on %s", #spaceIDs + 1, screen:name()))
 
             spaceIDs = hs.spaces.spacesForScreen(screen) or {}
         end
 
         local spaceID = spaceIDs[index]
 
+        -- Captured at press time: a press that still has to switch
+        -- desktops never toggles sizes. Compared against the desktop
+        -- the workspace actually runs on (which the fallback search may
+        -- change).
+        local pressFocusedSpace = hs.spaces.focusedSpace()
+
+        runLog(string.format(
+            "target desktop %d (space %s); focused space at press: %s",
+            index, tostring(spaceID), tostring(pressFocusedSpace)))
+
         if not spaceID then
             warn(string.format(
                 "No Space %d on %s (%d available)",
                 index, screen:name(), #spaceIDs))
+            endRunLog("ABORTED: target desktop does not exist")
             return false
         end
 
         -- 4.-6. Launch or focus each app, move its window to the Space,
         -- and apply its slot of the layout.
-        local function launchApps(runSpaceID)
+        local function launchApps(runSpaceID, isValidation)
+            runLog(string.format("launchApps: start (space %s, validation=%s)",
+                tostring(runSpaceID), tostring(isValidation or false)))
+
             local units = layoutUnits(
                 config.layout, #(config.apps or {}), config.name)
 
@@ -895,12 +1418,402 @@ return function(obj)
                 end
             end
 
+            -- Press state machine: when every window of the workspace
+            -- already exists on the desktop, the press repairs missing
+            -- tabs, activates the desktop, or toggles the window sizes
+            -- (config/windowSizes.json) — instead of launching.
+            local apps = config.apps or {}
+            local preClaimed = {}
+            local windows = {}
+            local urlsPerEntry = {}
+            local complete = #apps > 0
+
+            -- Chrome windows are linked to entries by POSITION: the
+            -- user keeps window order, so within each profile the
+            -- workspace's windows map to its entries left-to-right.
+            -- Content only helps to exclude personal windows (they hold
+            -- none of the workspace's sites) and to slot minimized
+            -- windows, whose x-position is meaningless.
+            local groups = {}
+
+            for i, appConfig in ipairs(apps) do
+                if appConfig.profile then
+                    local dir, profileName = obj._resolveChromeProfile(
+                        obj:chromeProfiles(), appConfig.profile)
+
+                    if dir then
+                        groups[dir] = groups[dir]
+                            or { name = profileName, entries = {} }
+                        table.insert(groups[dir].entries, i)
+                        urlsPerEntry[i] = wwwList(appConfig.www)
+                    else
+                        complete = false
+                    end
+                end
+            end
+
+            local chromeApp = obj._getApp("Google Chrome")
+
+            runLog("launchApps: context built, resolving windows")
+
+            for _, group in pairs(groups) do
+                local candidates = chromeApp and profileWindowsOnSpace(
+                    chromeApp, group.name, runSpaceID, preClaimed) or {}
+                local visible = {}
+                local minimized = {}
+
+                for _, w in ipairs(candidates) do
+                    if w:isMinimized() then
+                        table.insert(minimized, w)
+                    else
+                        table.insert(visible, w)
+                    end
+                end
+
+                -- Drop personal windows: with more windows than entries,
+                -- keep only windows holding at least one workspace site.
+                if #visible + #minimized > #group.entries then
+                    local unionKeys = {}
+
+                    for _, i in ipairs(group.entries) do
+                        for _, key in ipairs(siteKeys(urlsPerEntry[i] or {})) do
+                            table.insert(unionKeys, key)
+                        end
+                    end
+
+                    if #unionKeys > 0 then
+                        local info = chromeWindowsInfo()
+                        local keep = {}
+
+                        for _, w in ipairs(visible) do
+                            if windowSiteHits(w, unionKeys, info) > 0 then
+                                table.insert(keep, w)
+                            end
+                        end
+
+                        if #keep + #minimized >= #group.entries then
+                            visible = keep
+                        end
+                    end
+                end
+
+                table.sort(visible, function(a, b)
+                    return a:frame().x < b:frame().x
+                end)
+
+                -- CONTENT FIRST: a window's tabs are the ground truth
+                -- of its identity — if the windows ever physically swap
+                -- places, position-mapping would enforce the swap by
+                -- cross-filling tabs. Position only assigns windows
+                -- that hold none of their entry's sites; the placement
+                -- step then moves every window back to its proper slot.
+                local leftoverEntries = {}
+
+                for _, i in ipairs(group.entries) do
+                    local pick = chromeApp and pickSiteWindow(
+                        profileWindowsOnSpace(chromeApp, group.name,
+                            runSpaceID, preClaimed),
+                        siteKeys(urlsPerEntry[i] or {})) or nil
+
+                    if pick then
+                        windows[i] = pick
+                        claimWindow(preClaimed, pick)
+                        runLog(string.format(
+                            "resolve: entry %d matched by tab content", i))
+                    else
+                        table.insert(leftoverEntries, i)
+                    end
+                end
+
+                local leftoverWindows = {}
+
+                for _, w in ipairs(visible) do
+                    if not (w:id() and preClaimed[w:id()]) then
+                        table.insert(leftoverWindows, w)
+                    end
+                end
+
+                for _, w in ipairs(minimized) do
+                    if not (w:id() and preClaimed[w:id()]) then
+                        table.insert(leftoverWindows, w)
+                    end
+                end
+
+                if #leftoverWindows >= #leftoverEntries then
+                    for k, i in ipairs(leftoverEntries) do
+                        windows[i] = leftoverWindows[k]
+                        claimWindow(preClaimed, leftoverWindows[k])
+                        runLog(string.format(
+                            "resolve: entry %d assigned by position (no content match)", i))
+                    end
+                else
+                    complete = false
+                end
+            end
+
+            -- Non-Chrome entries keep the title/main-window resolution.
+            for i, appConfig in ipairs(apps) do
+                if not appConfig.profile then
+                    local window = resolveEntryWindow(
+                        appConfig, runSpaceID, preClaimed, context)
+                    windows[i] = window
+
+                    if not window then
+                        complete = false
+                    end
+                end
+            end
+
+            for i in ipairs(apps) do
+                if not windows[i] then
+                    complete = false
+                    break
+                end
+            end
+
+            for i in ipairs(apps) do
+                runLog(string.format("resolve: entry %d -> %s", i,
+                    windows[i] and "window found" or "MISSING"))
+            end
+
+            runLog("Stage 1 (windows) " .. (complete
+                and "PASSED: all windows present"
+                or "ACTIVATED: windows missing, launching"))
+
+            if complete then
+                local focusedAtPress = pressFocusedSpace == runSpaceID
+                local direction = (config.layout and config.layout.direction)
+                    or "horizontal"
+                local widths = config.layout
+                    and (config.layout.widths or config.layout.heights)
+                local profile = findSizesProfile(widths)
+                local measured = measureSizes(windows, screen, direction)
+
+                -- Repair pass: reopen missing tabs. A press that had to
+                -- repair does not toggle sizes. Keys that reopen twice
+                -- in a row never match their tab (redirecting site):
+                -- warn once, then skip them so the stage can complete.
+                local wsName = config.name or "?"
+                local skip = unmatchableKeys[wsName] or {}
+                local openedNow = {}
+                local reopened = 0
+
+                local repairFailed = false
+
+                for i in ipairs(apps) do
+                    if urlsPerEntry[i] and windows[i] then
+                        local result = ensureChromeTabs(
+                            windows[i], urlsPerEntry[i], skip) or ""
+
+                        local targetInfo = result:match("^synced(%b[])")
+
+                        if targetInfo then
+                            runLog(string.format(
+                                "entry %d restore target %s", i, targetInfo))
+                        end
+
+                        if result == "failed" or result == "window not found" then
+                            runLog(string.format(
+                                "entry %d tab restore: %s", i, result))
+                            repairFailed = true
+                        end
+
+                        local position = 0
+
+                        for status, key in result:gmatch("|(%a+):([^|]+)") do
+                            position = position + 1
+
+                            if status == "ok" then
+                                runLog(string.format(
+                                    'Testing: App %d, tab %d expecting "%s": IN SYNC',
+                                    i, position, key))
+                            elseif status == "skip" then
+                                runLog(string.format(
+                                    'Testing: App %d, tab %d "%s": SKIPPED (accepted — unstable site)',
+                                    i, position, key))
+                            elseif status == "set" then
+                                runLog(string.format(
+                                    'REPAIR: App %d, tab %d rewritten to "%s" (was out of sync)',
+                                    i, position, key))
+                                openedNow[key] = true
+                                reopened = reopened + 1
+                            elseif status == "new" then
+                                runLog(string.format(
+                                    'REPAIR: App %d, tab %d created "%s"',
+                                    i, position, key))
+                                openedNow[key] = true
+                                reopened = reopened + 1
+                            elseif status == "closed" then
+                                position = position - 1
+                                runLog(string.format(
+                                    'REPAIR: App %d, deleted %s extra tab(s)',
+                                    i, key))
+                                reopened = reopened + (tonumber(key) or 1)
+                            end
+                        end
+
+                        if result ~= "failed" and result ~= "window not found" then
+                            runLog(string.format(
+                                "Testing: App %d, template check complete", i))
+                        end
+                    end
+                end
+
+                if repairFailed then
+                    endRunLog("Repair stage FAILED — tab restore error (see above); not advancing")
+                    return 0, 0
+                end
+
+                -- Cumulative per-session counting: sites that keep
+                -- mutating their tab URL (e.g. rate-limited profile
+                -- pages) get restored at most twice, then skipped.
+                local counts = lastReopenedKeys[wsName] or {}
+
+                for key in pairs(openedNow) do
+                    counts[key] = (counts[key] or 0) + 1
+
+                    if counts[key] >= 2 then
+                        unmatchableKeys[wsName] = unmatchableKeys[wsName] or {}
+                        unmatchableKeys[wsName][key] = true
+                        warn(string.format(
+                            'Tab keeps losing its URL (site redirects/rate-limits?) — skipping from now on: %s',
+                            key))
+                    end
+                end
+
+                lastReopenedKeys[wsName] = counts
+
+                if reopened > 0 then
+                    warn(string.format('Workspace "%s": %d tab(s) restored',
+                        wsName, reopened))
+                    runLog(string.format(
+                        "Stage 2 (tabs) ACTIVATED: %d tab(s) restored", reopened))
+                    runLog("STAGE 2 had repairing tasks, SO EXITING now.")
+                    endRunLog(isValidation
+                        and string.format(
+                            "Cold launch successful — validation repaired %d tab(s)",
+                            reopened)
+                        or "Repair stage successful, exit")
+                    return 0, 0
+                end
+
+                runLog("STAGE 2 passed")
+
+                if isValidation then
+                    -- Cold-launch validation verifies only — never
+                    -- toggles sizes.
+                    endRunLog("Cold launch successful — all windows and tabs verified")
+                    return 0, 0
+                end
+
+                -- Repair and toggle presses finish synchronously — no
+                -- async launch to protect. Clear the lockout so sizes
+                -- can be cycled with quick repeated presses.
+                launchTimes[config.name] = nil
+
+                if profile then
+                    local state = matchSizesState(measured, profile)
+                    local targetSizes
+
+                    if reopened > 0 or not focusedAtPress then
+                        -- Repair or desktop-activation press: keep a
+                        -- recognized size state, normalize anything else
+                        -- to the initial sizes.
+                        if state == nil or state == 0 then
+                            targetSizes = profile.initial
+                        else
+                            targetSizes = profile.toggles[state]
+                        end
+                    elseif state == nil then
+                        targetSizes = profile.initial
+                    elseif state == 0 then
+                        targetSizes = profile.toggles[1]
+                    elseif state == #profile.toggles then
+                        targetSizes = profile.initial
+                    else
+                        targetSizes = profile.toggles[state + 1]
+                    end
+
+                    runLog(string.format(
+                        "Stage 3 (resize): current state=%s -> target=[%s]",
+                        tostring(state), table.concat(targetSizes, ", ")))
+
+                    for _, window in ipairs(windows) do
+                        if not window:isMinimized() then
+                            if not onSpace(window, runSpaceID) then
+                                hs.spaces.moveWindowToSpace(window, runSpaceID)
+                            end
+
+                            window:moveToScreen(screen)
+                        end
+                    end
+
+                    applySizes(windows, screen, direction, targetSizes)
+
+                    if reopened > 0 then
+                        endRunLog("Repair stage successful, exit")
+                    elseif not focusedAtPress then
+                        endRunLog("Desktop activated, sizes kept/normalized — exit")
+                    else
+                        endRunLog("Resize stage successful — all 3 stages checked, valid, done")
+                    end
+
+                    return 0, 0
+                end
+
+                -- No sizes profile: classic placement of the adopted
+                -- windows.
+                for i, window in ipairs(windows) do
+                    placeWindow(window, screen, runSpaceID, units[i])
+                end
+
+                if reopened > 0 then
+                    endRunLog("Repair stage successful, exit")
+                else
+                    endRunLog("All stages valid — layout re-asserted, done")
+                end
+
+                return 0, 0
+            end
+
+            -- Launch pass: at least one window is missing.
+            if isValidation then
+                endRunLog("Cold launch FAILED — window(s) still missing after launch; not relaunching")
+                return 0, 0
+            end
+
+            -- A fresh launch gives every site a fresh chance.
+            unmatchableKeys[config.name or "?"] = nil
+            lastReopenedKeys[config.name or "?"] = nil
+            runLog("quarantine reset (cold launch)")
+
+            -- Chain stage 2 validation onto the end of the open queue.
+            context.onQueueDrained = function()
+                launchInFlight[config.name or "?"] = nil
+                runLog("Cold launch: all windows opened — validating (stage 2)")
+
+                local okRun, errRun = pcall(launchApps, runSpaceID, true)
+
+                if not okRun then
+                    runLog("ERROR: internal failure: " .. tostring(errRun))
+                    endRunLog("FAILED: internal error — see log")
+                end
+            end
+
             local wwwEntries = 0
             local elsewhereCount = 0
 
-            for i, appConfig in ipairs(config.apps or {}) do
+            for i, appConfig in ipairs(apps) do
                 local status = launchIntoSpace(
                     appConfig, screen, runSpaceID, units[i], context)
+
+                runLog(string.format(
+                    "entry %d launch status: %s", i, tostring(status)))
+
+                if status == "opened" then
+                    launchInFlight[config.name or "?"] =
+                        hs.timer.secondsSinceEpoch()
+                end
 
                 if appConfig.profile and appConfig.www then
                     wwwEntries = wwwEntries + 1
@@ -965,6 +1878,7 @@ return function(obj)
                     warn(string.format(
                         'Unable to open apps on "Desktop %d" — existing windows could not be located',
                         index))
+                    endRunLog("ABORTED: existing windows could not be located")
                     return
                 end
 
@@ -973,12 +1887,20 @@ return function(obj)
                 hs.spaces.gotoSpace(target.id)
 
                 hs.timer.doAfter(1.2, function()
+                    runLog("fallback: probing desktop " .. target.index)
+
                     if hs.spaces.focusedSpace() == target.id
                         and probeSpace(target.id) then
                         warn(string.format(
                             'Unable to open apps on "Desktop %d" — using "Desktop %d" where the windows already are',
                             index, target.index))
-                        launchApps(target.id)
+
+                        local okRun, errRun = pcall(launchApps, target.id)
+
+                        if not okRun then
+                            runLog("ERROR: internal failure: " .. tostring(errRun))
+                            endRunLog("FAILED: internal error — see log")
+                        end
                     else
                         nextSpace()
                     end
@@ -989,7 +1911,13 @@ return function(obj)
         end
 
         local function runOnTarget()
-            local wwwEntries, elsewhereCount = launchApps(spaceID)
+            local ok, wwwEntries, elsewhereCount = pcall(launchApps, spaceID)
+
+            if not ok then
+                runLog("ERROR: internal failure: " .. tostring(wwwEntries))
+                endRunLog("FAILED: internal error — see log")
+                return
+            end
 
             if wwwEntries > 0 and elsewhereCount == wwwEntries then
                 fallbackSearch()
@@ -1005,6 +1933,7 @@ return function(obj)
         -- macOS that is the only reliable way to get them onto the
         -- target Space (moveWindowToSpace() silently fails there).
         if hs.spaces.focusedSpace() == spaceID then
+            runLog("already on target desktop")
             runOnTarget()
             return true
         end
@@ -1015,6 +1944,7 @@ return function(obj)
             -- Usually a missing Accessibility permission. Better no
             -- action than windows created on the wrong desktop.
             warn("Could not switch Space: " .. tostring(err))
+            endRunLog("ABORTED: could not switch Space")
             return false
         end
 
@@ -1022,6 +1952,7 @@ return function(obj)
 
         local function waitForSwitch()
             if hs.spaces.focusedSpace() == spaceID then
+                runLog("desktop switch settled")
                 runOnTarget()
                 return
             end
@@ -1032,6 +1963,7 @@ return function(obj)
                 warn(string.format(
                     'Workspace "%s": Space switch did not complete — aborting to avoid duplicate windows',
                     config.name))
+                endRunLog("ABORTED: Space switch did not complete")
                 return
             end
 

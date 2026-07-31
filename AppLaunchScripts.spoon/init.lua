@@ -7,7 +7,7 @@
 local obj = {}
 
 obj.name = "AppLaunchScripts"
-obj.version = "0.5.0"
+obj.version = "0.6.0"
 obj.author = "Heikki Pals"
 obj.homepage = "https://github.com/hekep/AppLaunchScripts"
 obj.license = "MIT"
@@ -224,6 +224,13 @@ local function findProfileWindow(app, name, spaceID, excluded)
             or title:sub(-#parenthesised) == parenthesised)
             and not (excluded and window:id() and excluded[window:id()]) then
             if not spaceID then
+                return window
+            end
+
+            -- Minimized windows belong to no Space; treat them as
+            -- matching so a workspace state with a minimized window is
+            -- still recognized instead of relaunched.
+            if window:isMinimized() then
                 return window
             end
 
