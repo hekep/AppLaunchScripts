@@ -14,7 +14,7 @@
   "apps": [
     {
       "name": "Chrome",
-      "profile": "Heikki",
+      "profile": null,
       "www": [
         "https://www.massdevice.com/",
         "https://www.mddionline.com/",
@@ -29,7 +29,7 @@
     },
     {
       "name": "Chrome",
-      "profile": "Heikki",
+      "profile": null,
       "www": [
         "https://x.com/EricTopol",
         "https://x.com/Berci",

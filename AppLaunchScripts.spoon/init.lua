@@ -7,7 +7,7 @@
 local obj = {}
 
 obj.name = "AppLaunchScripts"
-obj.version = "0.6.0"
+obj.version = "0.6.1"
 obj.author = "Heikki Pals"
 obj.homepage = "https://github.com/hekep/AppLaunchScripts"
 obj.license = "MIT"

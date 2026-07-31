@@ -202,6 +202,60 @@ return function(obj)
         return appAliases[name:lower()] or name
     end
 
+    -- An app entry is a Chrome entry when it names a profile OR opens
+    -- URLs in Chrome ("profile": null falls back to the default
+    -- profile below).
+    local function isChromeEntry(appConfig)
+        return appConfig.profile ~= nil
+            or (appConfig.www ~= nil
+                and realAppName(appConfig.name or "") == "Google Chrome")
+    end
+
+    -- The fallback profile when an entry has none: the profile Chrome
+    -- itself used most recently, then "Default", then the first
+    -- directory in sorted order.
+    local function defaultChromeProfile()
+        local profiles = obj:chromeProfiles()
+
+        local file = io.open(os.getenv("HOME")
+            .. "/Library/Application Support/Google/Chrome/Local State", "r")
+
+        if file then
+            local state = hs.json.decode(file:read("*a"))
+            file:close()
+
+            local lastUsed = state and state.profile and state.profile.last_used
+
+            if lastUsed and profiles[lastUsed] then
+                return lastUsed, profiles[lastUsed]
+            end
+        end
+
+        if profiles["Default"] then
+            return "Default", profiles["Default"]
+        end
+
+        local dirs = {}
+
+        for dir in pairs(profiles) do
+            table.insert(dirs, dir)
+        end
+
+        table.sort(dirs)
+
+        return dirs[1], dirs[1] and profiles[dirs[1]] or nil
+    end
+
+    -- Resolve an entry's profile: explicit value or the default.
+    local function resolveEntryProfile(appConfig)
+        if appConfig.profile then
+            return obj._resolveChromeProfile(
+                obj:chromeProfiles(), appConfig.profile)
+        end
+
+        return defaultChromeProfile()
+    end
+
     local function onSpace(window, spaceID)
         return contains(hs.spaces.windowSpaces(window), spaceID)
     end
@@ -651,11 +705,11 @@ return function(obj)
     -- a window that belongs to a different workspace's desktop.
     local function launchChromeProfileIntoSpace(appConfig, screen, spaceID, unit, context)
         local claimed = context.claimed
-        local dir, profileName = obj._resolveChromeProfile(
-            obj:chromeProfiles(), appConfig.profile)
+        local dir, profileName = resolveEntryProfile(appConfig)
 
         if not dir then
-            warn("Unknown Chrome profile: " .. appConfig.profile)
+            warn("Unknown Chrome profile: "
+                .. tostring(appConfig.profile or "(no profiles found)"))
             return "failed"
         end
 
@@ -1073,9 +1127,8 @@ return function(obj)
     -- launching. Used to decide between launch, repair, and size-toggle
     -- presses.
     local function resolveEntryWindow(appConfig, spaceID, claimed, context)
-        if appConfig.profile then
-            local dir, profileName = obj._resolveChromeProfile(
-                obj:chromeProfiles(), appConfig.profile)
+        if isChromeEntry(appConfig) then
+            local dir, profileName = resolveEntryProfile(appConfig)
 
             if not dir then
                 return nil
@@ -1136,7 +1189,7 @@ return function(obj)
     -- restarts). When appConfig.window matches an existing window title
     -- the launch step is skipped entirely and the window is just placed.
     local function launchIntoSpace(appConfig, screen, spaceID, unit, context)
-        if appConfig.profile then
+        if isChromeEntry(appConfig) then
             return launchChromeProfileIntoSpace(
                 appConfig, screen, spaceID, unit, context)
         end
@@ -1399,9 +1452,8 @@ return function(obj)
             }
 
             for _, appConfig in ipairs(config.apps or {}) do
-                if appConfig.profile then
-                    local dir = obj._resolveChromeProfile(
-                        obj:chromeProfiles(), appConfig.profile)
+                if isChromeEntry(appConfig) then
+                    local dir = resolveEntryProfile(appConfig)
 
                     if dir then
                         context.profileCounts[dir] =
@@ -1437,9 +1489,8 @@ return function(obj)
             local groups = {}
 
             for i, appConfig in ipairs(apps) do
-                if appConfig.profile then
-                    local dir, profileName = obj._resolveChromeProfile(
-                        obj:chromeProfiles(), appConfig.profile)
+                if isChromeEntry(appConfig) then
+                    local dir, profileName = resolveEntryProfile(appConfig)
 
                     if dir then
                         groups[dir] = groups[dir]
@@ -1553,7 +1604,7 @@ return function(obj)
 
             -- Non-Chrome entries keep the title/main-window resolution.
             for i, appConfig in ipairs(apps) do
-                if not appConfig.profile then
+                if not isChromeEntry(appConfig) then
                     local window = resolveEntryWindow(
                         appConfig, runSpaceID, preClaimed, context)
                     windows[i] = window
@@ -1815,7 +1866,7 @@ return function(obj)
                         hs.timer.secondsSinceEpoch()
                 end
 
-                if appConfig.profile and appConfig.www then
+                if isChromeEntry(appConfig) and appConfig.www then
                     wwwEntries = wwwEntries + 1
 
                     if status == "elsewhere" then
@@ -1838,9 +1889,8 @@ return function(obj)
             end
 
             for _, appConfig in ipairs(config.apps or {}) do
-                if appConfig.profile and appConfig.www then
-                    local dir, profileName = obj._resolveChromeProfile(
-                        obj:chromeProfiles(), appConfig.profile)
+                if isChromeEntry(appConfig) and appConfig.www then
+                    local dir, profileName = resolveEntryProfile(appConfig)
 
                     if dir then
                         local candidates = profileWindowsOnSpace(
