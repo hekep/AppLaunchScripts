@@ -1,0 +1,62 @@
+{
+  "name": "HealthTechNews",
+  "space": {
+    "display": "current",
+    "desktop": 8
+  },
+  "layout": {
+    "direction": "horizontal",
+    "widths": [
+      50,
+      50
+    ]
+  },
+  "apps": [
+    {
+      "name": "Chrome",
+      "profile": "Heikki",
+      "www": [
+        "https://www.massdevice.com/",
+        "https://www.mddionline.com/",
+        "https://www.medtechdive.com/",
+        "https://www.fiercebiotech.com/medtech",
+        "https://www.mobihealthnews.com/",
+        "https://med-techinsights.com/",
+        "https://www.healthcareitnews.com/topics/medical-devices",
+        "https://www.statnews.com/topic/wearables/",
+        "https://www.medicaldesignandoutsourcing.com/"
+      ]
+    },
+    {
+      "name": "Chrome",
+      "profile": "Heikki",
+      "www": [
+        "https://x.com/EricTopol",
+        "https://x.com/Berci",
+        "https://x.com/daniel_kraft",
+        "https://x.com/JohnNosta",
+        "https://x.com/Joao_B",
+        "https://x.com/vicmsong",
+        "https://x.com/dcrainmakerblog",
+        "https://x.com/QuantifiedRob",
+        "https://x.com/chrissyfarr",
+        "https://x.com/DrBrittB",
+        "https://x.com/ShafiAhmed5",
+        "https://x.com/jkvedar",
+        "https://x.com/RobertPearlMD",
+        "https://x.com/HealthEugene",
+        "https://x.com/unitystoakes",
+        "https://x.com/venturevalkyrie",
+        "https://x.com/halletecco",
+        "https://x.com/Gil_Bashe",
+        "https://x.com/fardj",
+        "https://x.com/ShantanuBaruah",
+        "https://x.com/c4trends",
+        "https://x.com/Ronald_vanLoon",
+        "https://x.com/PeterDiamandis",
+        "https://x.com/matthewherper",
+        "https://x.com/statnews"
+      ]
+    }
+  ]
+}

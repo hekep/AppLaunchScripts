@@ -216,10 +216,39 @@ return function(obj)
         end
     end
 
-    local function siteHost(url)
-        local host = url:match("^%a[%w+.-]*://([^/]+)") or url
+    -- Normalize a URL to its identifying fragment: scheme and "www."
+    -- stripped, path kept — "https://www.x.com/SomeUser" becomes
+    -- "x.com/SomeUser". The path matters: many tabs can share one host
+    -- (e.g. several profiles on a social network) and must be told
+    -- apart.
+    local function siteKey(url)
+        local key = url:gsub("^%a[%w+.-]*://", "")
 
-        return (host:gsub("^www%.", ""))
+        return (key:gsub("^www%.", ""))
+    end
+
+    -- apps[].www accepts a single URL or an array of URLs (one Chrome
+    -- window holding one tab per URL).
+    local function wwwList(www)
+        if www == nil then
+            return nil
+        end
+
+        if type(www) == "table" then
+            return #www > 0 and www or nil
+        end
+
+        return { www }
+    end
+
+    local function siteKeys(urls)
+        local keys = {}
+
+        for _, url in ipairs(urls) do
+            table.insert(keys, siteKey(url))
+        end
+
+        return keys
     end
 
     -- One AppleScript round-trip: every Chrome window's name (= active
@@ -266,7 +295,8 @@ return function(obj)
         return cut and title:sub(1, cut - 1) or title
     end
 
-    local function windowHasSite(window, host, info)
+    -- Does the window hold a tab on any of the entry's sites?
+    local function windowHasSite(window, keys, info)
         if not info then
             return false
         end
@@ -274,8 +304,12 @@ return function(obj)
         local prefix = windowNamePrefix(window)
 
         for _, entry in ipairs(info) do
-            if entry.name == prefix and entry.urls:find(host, 1, true) then
-                return true
+            if entry.name == prefix then
+                for _, key in ipairs(keys) do
+                    if entry.urls:find(key, 1, true) then
+                        return true
+                    end
+                end
             end
         end
 
@@ -313,21 +347,21 @@ return function(obj)
         return windows
     end
 
-    -- Pick the window that actually holds the wanted site; a window is
-    -- "the Instagram window" only if one of its tabs is on instagram.
-    local function pickSiteWindow(candidates, host)
+    -- Pick the window that actually holds the wanted site(s); a window
+    -- is "the Instagram window" only if one of its tabs is on instagram.
+    local function pickSiteWindow(candidates, keys)
         if #candidates == 0 then
             return nil
         end
 
-        if not host then
+        if not keys then
             return candidates[1]
         end
 
         local info = chromeWindowsInfo()
 
         for _, window in ipairs(candidates) do
-            if windowHasSite(window, host, info) then
+            if windowHasSite(window, keys, info) then
                 return window
             end
         end
@@ -340,11 +374,11 @@ return function(obj)
     -- for the same profile (e.g. Instagram and MeWe windows opening
     -- side by side) never grab each other's window. Falls back to any
     -- unclaimed profile window, then the main window.
-    local function waitForProfileWindow(app, profileName, spaceID, claimed, host, callback, attempts)
+    local function waitForProfileWindow(app, profileName, spaceID, claimed, keys, callback, attempts)
         attempts = attempts or 60
 
         local candidates = profileWindowsOnSpace(app, profileName, spaceID, claimed)
-        local pick = pickSiteWindow(candidates, host)
+        local pick = pickSiteWindow(candidates, keys)
 
         if pick then
             claimWindow(claimed, pick)
@@ -366,7 +400,7 @@ return function(obj)
         end
 
         hs.timer.doAfter(0.25, function()
-            waitForProfileWindow(app, profileName, spaceID, claimed, host, callback, attempts - 1)
+            waitForProfileWindow(app, profileName, spaceID, claimed, keys, callback, attempts - 1)
         end)
     end
 
@@ -376,51 +410,84 @@ return function(obj)
     -- window is identified by the active-tab title, which the macOS
     -- window title (as seen by Hammerspoon) starts with. Requires the
     -- macOS Automation permission (Hammerspoon -> Google Chrome).
-    local function ensureChromeTab(window, url)
-        local host = siteHost(url)
+    -- Restore the configured tabs inside an existing Chrome window: for
+    -- every configured URL, keep the tab matching its site key or open a
+    -- new tab when it is missing; finally activate the first URL's tab.
+    -- The target window is chosen by tab content (most matching site
+    -- keys wins) — title-name matching proved unreliable and once sent
+    -- a whole tab set into the wrong window.
+    local function ensureChromeTabs(window, urls)
+        local keyItems = {}
+        local urlItems = {}
 
-        -- Among windows whose name matches, prefer the one that already
-        -- holds the site — duplicate names across desktops otherwise
-        -- send the tab to the wrong window.
+        for _, url in ipairs(urls) do
+            table.insert(keyItems, string.format("%q", siteKey(url)))
+            table.insert(urlItems, string.format("%q", url))
+        end
+
         local script = string.format([[
             set hsTitle to %q
-            set siteHost to %q
-            set targetURL to %q
+            set siteKeys to {%s}
+            set siteURLs to {%s}
+            set allowNameFallback to %s
             set targetIdx to 0
-            set backupIdx to 0
+            set bestHits to 0
+            set nameIdx to 0
             tell application "Google Chrome"
                 repeat with i from 1 to count of windows
-                    if hsTitle starts with (name of window i) then
-                        set found to false
-                        repeat with j from 1 to count of tabs of window i
-                            if (URL of tab j of window i) contains siteHost then
-                                set found to true
+                    set hits to 0
+                    repeat with j from 1 to count of tabs of window i
+                        set tabURL to URL of tab j of window i
+                        repeat with k from 1 to count of siteKeys
+                            if tabURL contains (item k of siteKeys) then
+                                set hits to hits + 1
                             end if
                         end repeat
-                        if found and targetIdx is 0 then
-                            set targetIdx to i
-                        end if
-                        if backupIdx is 0 then
-                            set backupIdx to i
-                        end if
+                    end repeat
+                    if hits > bestHits then
+                        set bestHits to hits
+                        set targetIdx to i
+                    end if
+                    if nameIdx is 0 and (name of window i) is not "" and hsTitle starts with (name of window i) then
+                        set nameIdx to i
                     end if
                 end repeat
-                if targetIdx is 0 then
-                    set targetIdx to backupIdx
+                if targetIdx is 0 and allowNameFallback then
+                    set targetIdx to nameIdx
                 end if
                 if targetIdx is 0 then
                     return "window not found"
                 end if
-                repeat with j from 1 to count of tabs of window targetIdx
-                    if (URL of tab j of window targetIdx) contains siteHost then
-                        set active tab index of window targetIdx to j
-                        return "activated existing tab"
+                set opened to 0
+                repeat with k from 1 to count of siteKeys
+                    set haveIt to false
+                    repeat with j from 1 to count of tabs of window targetIdx
+                        if (URL of tab j of window targetIdx) contains (item k of siteKeys) then
+                            set haveIt to true
+                        end if
+                    end repeat
+                    if not haveIt then
+                        make new tab at end of tabs of window targetIdx with properties {URL:(item k of siteURLs)}
+                        set opened to opened + 1
                     end if
                 end repeat
-                make new tab at end of tabs of window targetIdx with properties {URL:targetURL}
-                return "opened new tab"
+                repeat with j from 1 to count of tabs of window targetIdx
+                    if (URL of tab j of window targetIdx) contains (item 1 of siteKeys) then
+                        set active tab index of window targetIdx to j
+                        exit repeat
+                    end if
+                end repeat
+                return "restored (" & opened & " tab(s) reopened)"
             end tell
-        ]], window:title() or "", host, url)
+        ]], window:title() or "",
+            table.concat(keyItems, ", "),
+            table.concat(urlItems, ", "),
+            -- With several URLs, a window without any matching tab is
+            -- never a valid target — a blind name fallback once sent a
+            -- whole tab set into the wrong window. A single-URL entry
+            -- may legitimately have its only site tab closed, so the
+            -- name fallback stays allowed there.
+            (#urls == 1) and "true" or "false")
 
         local ok, result = hs.osascript.applescript(script)
 
@@ -450,13 +517,15 @@ return function(obj)
             return "failed"
         end
 
-        local host = appConfig.www and siteHost(appConfig.www) or nil
+        local urls = wwwList(appConfig.www)
+        local keys = urls and siteKeys(urls) or nil
+        local primaryKey = keys and keys[1] or nil
         local app = obj._getApp("Google Chrome")
 
         if app then
             local candidates = profileWindowsOnSpace(
                 app, profileName, spaceID, claimed)
-            local pick = pickSiteWindow(candidates, host)
+            local pick = pickSiteWindow(candidates, keys)
 
             -- No window holds the site: adopting a generic window is
             -- only safe when this profile has a single entry in the
@@ -470,8 +539,8 @@ return function(obj)
             if pick then
                 claimWindow(claimed, pick)
 
-                if appConfig.www then
-                    ensureChromeTab(pick, appConfig.www)
+                if urls then
+                    ensureChromeTabs(pick, urls)
                 end
 
                 placeWindow(pick, screen, spaceID, unit)
@@ -484,17 +553,17 @@ return function(obj)
         -- (the accessibility API does not). If the whole config's quota
         -- for this site is already open somewhere, report it so
         -- applyWorkspace() can fall back to that desktop.
-        if host then
+        if primaryKey then
             local info = chromeWindowsInfo()
             local existingCount = 0
 
             for _, entry in ipairs(info or {}) do
-                if entry.urls:find(host, 1, true) then
+                if entry.urls:find(primaryKey, 1, true) then
                     existingCount = existingCount + 1
                 end
             end
 
-            if existingCount >= (context.hostCounts[host] or 1) then
+            if existingCount >= (context.hostCounts[primaryKey] or 1) then
                 return "elsewhere"
             end
         end
@@ -510,8 +579,8 @@ return function(obj)
             "--new-window",
         }
 
-        if appConfig.www then
-            table.insert(args, appConfig.www)
+        for _, url in ipairs(urls or {}) do
+            table.insert(args, url)
         end
 
         local delay = context.opens * 0.7
@@ -522,8 +591,17 @@ return function(obj)
         end)
 
         obj._waitForApp("Google Chrome", function(chromeApp)
-            waitForProfileWindow(chromeApp, profileName, spaceID, claimed, host, function(window)
+            waitForProfileWindow(chromeApp, profileName, spaceID, claimed, keys, function(window)
                 placeWindow(window, screen, spaceID, unit)
+
+                -- Chrome occasionally routes some of the URLs into an
+                -- existing window instead of the new one; complete the
+                -- configured composition in the placed window.
+                if urls and #urls > 1 then
+                    hs.timer.doAfter(2, function()
+                        ensureChromeTabs(window, urls)
+                    end)
+                end
             end)
         end)
 
@@ -807,10 +885,12 @@ return function(obj)
                             (context.profileCounts[dir] or 0) + 1
                     end
 
-                    if appConfig.www then
-                        local host = siteHost(appConfig.www)
-                        context.hostCounts[host] =
-                            (context.hostCounts[host] or 0) + 1
+                    local urls = wwwList(appConfig.www)
+
+                    if urls then
+                        local primaryKey = siteKey(urls[1])
+                        context.hostCounts[primaryKey] =
+                            (context.hostCounts[primaryKey] or 0) + 1
                     end
                 end
             end
@@ -853,7 +933,8 @@ return function(obj)
                         local candidates = profileWindowsOnSpace(
                             app, profileName, sid, {})
 
-                        if pickSiteWindow(candidates, siteHost(appConfig.www)) then
+                        if pickSiteWindow(candidates,
+                            siteKeys(wwwList(appConfig.www))) then
                             return true
                         end
                     end
