@@ -11,3 +11,6 @@ logs/
 # Slack domain configs (contain personal channel/people names)
 AppLaunchScripts.spoon/config/slack/
 AppLaunchScripts.spoon/availableSlackComms.lua
+# Teams config (contains personal names and email addresses)
+AppLaunchScripts.spoon/config/teams/
+AppLaunchScripts.spoon/availableTeamsComms.lua

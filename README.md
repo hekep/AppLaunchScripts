@@ -46,6 +46,22 @@ Every entry becomes a generated method and Stream Deck URL, e.g. `launchSlackExa
 
 - [Slack — one button per conversation](Docs/SlackUseCase.md) — configuration, the `name`/`title`/`alias` convention, finding IDs, and what a press does
 
+## Microsoft Teams
+
+One button per person: press it and Teams opens the chat with that person, message box focused — start typing. A person is just an email address, **declared** in one gitignored config file, `AppLaunchScripts.spoon/config/teams/Teams.json` — no IDs, no scanning, no macOS permissions:
+
+```json
+{
+  "people": [ { "name": "Alice", "email": "alice@example.com" } ]
+}
+```
+
+Every person becomes a generated method and Stream Deck URL, e.g. `launchTeamsAlicePerson()` / `hammerspoon://launchteamsaliceperson`, plus a plain `launchTeams()` for the app itself.
+
+### Teams use case
+
+- [Microsoft Teams — one button per person](Docs/MsTeamsUseCase.md) — configuration, self-filling names and titles, hidden contact details, why group chats are not supported, and the security note
+
 ## Documentation
 
 - [Basic use cases](Docs/BasicUseCases.md) — `help()`, `terminal()`, `focusOrLaunch()` with layouts, Chrome profiles, hotkeys, Stream Deck

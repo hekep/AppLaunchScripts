@@ -7,7 +7,7 @@
 local obj = {}
 
 obj.name = "AppLaunchScripts"
-obj.version = "0.7.0"
+obj.version = "0.8.0"
 obj.author = "Heikki Pals"
 obj.homepage = "https://github.com/hekep/AppLaunchScripts"
 obj.license = "MIT"
@@ -364,12 +364,17 @@ end
 --- Returns:
 ---  * The help text as a string
 function obj:help()
-    -- Hidden feature: refresh Slack state first — rescan domains,
-    -- regenerate domain configs and availableSlackComms.lua — so the
-    -- printed commands are always up to date without a reload.
+    -- Hidden feature: refresh Slack and Teams state first — rescan
+    -- domains, regenerate configs and the available*Comms.lua files —
+    -- so the printed commands are always up to date without a reload.
     if self.generateSlackDomainConfigs then
         self:generateSlackDomainConfigs()
         self:generateSlackMethods()
+    end
+
+    if self.generateTeamsConfig then
+        self:generateTeamsConfig()
+        self:generateTeamsMethods()
     end
 
     local lines = {
@@ -424,6 +429,16 @@ function obj:help()
         end
     end
 
+    if self._teamsLaunchers and #self._teamsLaunchers > 0 then
+        table.insert(lines, "")
+        table.insert(lines, "Microsoft Teams (config/teams/Teams.json):")
+
+        for _, method in ipairs(self._teamsLaunchers) do
+            table.insert(lines, string.format(
+                "  spoon.%s:%s()", self.name, method))
+        end
+    end
+
     local profileLines = {}
 
     for dir, name in pairs(self:chromeProfiles()) do
@@ -460,6 +475,7 @@ obj.spoonPath = hs.spoons.scriptPath()
 
 dofile(obj.spoonPath .. "workspaces.lua")(obj)
 dofile(obj.spoonPath .. "slack.lua")(obj)
+dofile(obj.spoonPath .. "teams.lua")(obj)
 
 --- AppLaunchScripts:start()
 --- Method

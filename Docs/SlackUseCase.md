@@ -86,3 +86,7 @@ Buttons also **learn on their own**: pressing a launcher whose entry has no `tit
 4. Focuses the window — the message box is active, ready for typing.
 
 > **Single-window app:** Slack has exactly one main window, which these buttons navigate *in place*. Its position and size belong to your [workspaces](LaunchCommunicationsUseCase.md); Slack buttons never move it, and Slack cannot spread across multiple macOS Spaces.
+
+## Security note
+
+`config/slack/*.json` stores workspace, channel, and **people names in plain text**. The folder is gitignored so it never reaches the repository, but the files themselves are readable by any application (or automation) that can read your files. Be conscious about whose contact information you keep there.
