@@ -7,7 +7,7 @@
 local obj = {}
 
 obj.name = "AppLaunchScripts"
-obj.version = "0.8.0"
+obj.version = "0.9.0"
 obj.author = "Heikki Pals"
 obj.homepage = "https://github.com/hekep/AppLaunchScripts"
 obj.license = "MIT"
@@ -377,6 +377,15 @@ function obj:help()
         self:generateTeamsMethods()
     end
 
+    if self.generateDiscordConfigs then
+        self:generateDiscordConfigs()
+        -- Complete pending name scans first (blocks briefly per
+        -- unfilled entry, no-op otherwise) so the printed commands
+        -- carry real names instead of provisional IDs.
+        self:discordScanTitlesSync()
+        self:generateDiscordMethods()
+    end
+
     local lines = {
         self.name .. " " .. self.version .. " — " .. self.homepage,
         "",
@@ -439,6 +448,16 @@ function obj:help()
         end
     end
 
+    if self._discordLaunchers and #self._discordLaunchers > 0 then
+        table.insert(lines, "")
+        table.insert(lines, "Discord (config/discord/*.json + config/discordDM/*.json):")
+
+        for _, method in ipairs(self._discordLaunchers) do
+            table.insert(lines, string.format(
+                "  spoon.%s:%s()", self.name, method))
+        end
+    end
+
     local profileLines = {}
 
     for dir, name in pairs(self:chromeProfiles()) do
@@ -476,6 +495,7 @@ obj.spoonPath = hs.spoons.scriptPath()
 dofile(obj.spoonPath .. "workspaces.lua")(obj)
 dofile(obj.spoonPath .. "slack.lua")(obj)
 dofile(obj.spoonPath .. "teams.lua")(obj)
+dofile(obj.spoonPath .. "discord.lua")(obj)
 
 --- AppLaunchScripts:start()
 --- Method

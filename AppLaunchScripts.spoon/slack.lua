@@ -665,6 +665,15 @@ return function(obj)
     --- Returns:
     ---  * The AppLaunchScripts object
     function obj:generateSlackMethods()
+        -- Remove the previous generation's methods first, so renamed
+        -- entries (e.g. a provisional ID-launcher after learning) do
+        -- not linger as stale methods until the next reload. Every
+        -- Slack launcher is catalog-generated, so the previous
+        -- launcher list is exactly the removal list.
+        for _, method in ipairs(obj._slackLaunchers or {}) do
+            obj[method] = nil
+        end
+
         local comms = self:slackComms()
         local launchers = {}
         local lines = {
@@ -799,10 +808,18 @@ return function(obj)
         obj._slackLaunchers = launchers
 
         -- Stream Deck: every launcher as a hammerspoon:// URL (plus the
-        -- lowercase twin — browsers lowercase URL hosts).
+        -- lowercase twin — browsers lowercase URL hosts). The handler
+        -- looks the method up at press time, so a button assigned to a
+        -- since-renamed launcher alerts instead of crashing.
         for _, method in ipairs(launchers) do
             local handler = function()
-                obj[method](obj)
+                if obj[method] then
+                    obj[method](obj)
+                else
+                    notify(string.format(
+                        'Launcher "%s" no longer exists (entry renamed after learning?) — reassign the button from availableSlackComms.lua',
+                        method))
+                end
             end
 
             hs.urlevent.bind(method, handler)

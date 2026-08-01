@@ -62,6 +62,24 @@ Every person becomes a generated method and Stream Deck URL, e.g. `launchTeamsAl
 
 - [Microsoft Teams — one button per person](Docs/MsTeamsUseCase.md) — configuration, self-filling names and titles, hidden contact details, why group chats are not supported, and the security note
 
+## Discord
+
+One button per server, channel, person, or group DM: press it and Discord opens that destination, message box focused — start typing. No auto-discovery is possible, but each destination needs only one pasted ID (Developer Mode → *Copy ID*), **declared** in gitignored config files — one per server, plus a separate `discordDM` folder for DMs:
+
+```json
+{
+  "server": "My Server",
+  "id": "762900000000000000",
+  "channels": [ { "name": "general", "id": "762900000000000001" } ]
+}
+```
+
+Every entry becomes a generated method and Stream Deck URL, e.g. `launchDiscordExampleGeneralChannel()` / `hammerspoon://launchdiscordexamplegeneralchannel`, plus a plain `launchDiscord()` for the app itself. Server names, channel names, and titles self-fill from window titles on first press or via `discordScanTitles()`.
+
+### Discord use case
+
+- [Discord — one button per destination](Docs/DiscordUseCase.md) — configuration, finding IDs with Developer Mode, self-filling configs, dead-ID foolproofing, and the security note
+
 ## Documentation
 
 - [Basic use cases](Docs/BasicUseCases.md) — `help()`, `terminal()`, `focusOrLaunch()` with layouts, Chrome profiles, hotkeys, Stream Deck

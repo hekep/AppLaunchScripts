@@ -14,3 +14,7 @@ AppLaunchScripts.spoon/availableSlackComms.lua
 # Teams config (contains personal names and email addresses)
 AppLaunchScripts.spoon/config/teams/
 AppLaunchScripts.spoon/availableTeamsComms.lua
+# Discord configs (contain personal server/channel/people names and IDs)
+AppLaunchScripts.spoon/config/discord/
+AppLaunchScripts.spoon/config/discordDM/
+AppLaunchScripts.spoon/availableDiscordComms.lua
