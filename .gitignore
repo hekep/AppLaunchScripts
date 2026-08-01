@@ -8,3 +8,6 @@ AppLaunchScripts.spoon/workspaces/Private*
 logs/
 # macOS cruft
 .DS_Store
+# Slack domain configs (contain personal channel/people names)
+AppLaunchScripts.spoon/config/slack/
+AppLaunchScripts.spoon/availableSlackComms.lua

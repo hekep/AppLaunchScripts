@@ -7,7 +7,7 @@
 local obj = {}
 
 obj.name = "AppLaunchScripts"
-obj.version = "0.6.1"
+obj.version = "0.7.0"
 obj.author = "Heikki Pals"
 obj.homepage = "https://github.com/hekep/AppLaunchScripts"
 obj.license = "MIT"
@@ -364,6 +364,14 @@ end
 --- Returns:
 ---  * The help text as a string
 function obj:help()
+    -- Hidden feature: refresh Slack state first — rescan domains,
+    -- regenerate domain configs and availableSlackComms.lua — so the
+    -- printed commands are always up to date without a reload.
+    if self.generateSlackDomainConfigs then
+        self:generateSlackDomainConfigs()
+        self:generateSlackMethods()
+    end
+
     local lines = {
         self.name .. " " .. self.version .. " — " .. self.homepage,
         "",
@@ -406,6 +414,16 @@ function obj:help()
         end
     end
 
+    if self._slackLaunchers and #self._slackLaunchers > 0 then
+        table.insert(lines, "")
+        table.insert(lines, "Slack (config/slack/*.json):")
+
+        for _, method in ipairs(self._slackLaunchers) do
+            table.insert(lines, string.format(
+                "  spoon.%s:%s()", self.name, method))
+        end
+    end
+
     local profileLines = {}
 
     for dir, name in pairs(self:chromeProfiles()) do
@@ -441,6 +459,7 @@ obj._resolveLayout = resolveLayout
 obj.spoonPath = hs.spoons.scriptPath()
 
 dofile(obj.spoonPath .. "workspaces.lua")(obj)
+dofile(obj.spoonPath .. "slack.lua")(obj)
 
 --- AppLaunchScripts:start()
 --- Method
