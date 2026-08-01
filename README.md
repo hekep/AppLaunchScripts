@@ -80,6 +80,24 @@ Every entry becomes a generated method and Stream Deck URL, e.g. `launchDiscordE
 
 - [Discord — one button per destination](Docs/DiscordUseCase.md) — configuration, finding IDs with Developer Mode, self-filling configs, dead-ID foolproofing, and the security note
 
+## Windows App (Remote Desktop)
+
+One button per remote PC: press it and Windows App connects to that PC — or jumps straight to its session window when the connection is already live. The PCs you saved in Windows App are **auto-discovered** from its own bookmark database, so buttons usually appear with no configuration at all (hostnames and friendly names only — credentials are never touched):
+
+```json
+{
+  "pcs": [ { "name": "Office PC", "host": "10.0.0.5" } ]
+}
+```
+
+The `name` key is always written out ready to edit — prefilled from the PC's friendly name, or from the address itself (`10.0.0.5` → `"10005"`) when it has none, so there is always a value to replace with an alias of your choosing.
+
+Every PC becomes a generated method and Stream Deck URL, e.g. `launchWindowsAppOfficePcPc()` / `hammerspoon://launchwindowsappofficepcpc`, plus a plain `launchWindowsApp()` for the app itself.
+
+### Windows App use case
+
+- [Windows App — one button per remote PC](Docs/WindowsAppUseCase.md) — auto-discovery, what a press does, why tile pressing replaces the dead `rdp://` routes, and the security note
+
 ## Documentation
 
 - [Basic use cases](Docs/BasicUseCases.md) — `help()`, `terminal()`, `focusOrLaunch()` with layouts, Chrome profiles, hotkeys, Stream Deck

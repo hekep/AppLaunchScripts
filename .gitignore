@@ -18,3 +18,6 @@ AppLaunchScripts.spoon/availableTeamsComms.lua
 AppLaunchScripts.spoon/config/discord/
 AppLaunchScripts.spoon/config/discordDM/
 AppLaunchScripts.spoon/availableDiscordComms.lua
+# Windows App config (contains personal PC hostnames)
+AppLaunchScripts.spoon/config/windowsapp/
+AppLaunchScripts.spoon/availableWindowsAppComms.lua
