@@ -28,6 +28,7 @@ return function(obj)
     -- logs/<Name>_WS_<unixTimestamp>.log — every alert verbatim, each
     -- stage activation/pass, and the process exit reason.
     local currentRunLog = nil
+    local currentRunStarted = nil
 
     local function logsDir()
         return obj.spoonPath .. "logs/"
@@ -50,6 +51,9 @@ return function(obj)
         return config ~= nil and config.workSpaceRunLogs == true
     end
 
+    -- Lines carry millisecond wall-clock AND "+seconds since this run
+    -- started", so a log answers "what took the time?" by itself —
+    -- that is the whole point of turning run logs on.
     local function runLog(message)
         if not currentRunLog then
             return
@@ -61,13 +65,24 @@ return function(obj)
             return
         end
 
-        file:write(os.date("%Y-%m-%d %H:%M:%S") .. "  " .. message .. "\n")
+        local now = hs.timer.secondsSinceEpoch()
+        local millis = math.floor((now % 1) * 1000)
+        local elapsed = currentRunStarted and (now - currentRunStarted) or 0
+
+        file:write(string.format("%s.%03d  +%6.2fs  %s\n",
+            os.date("%Y-%m-%d %H:%M:%S"), millis, elapsed, message))
         file:close()
     end
+
+    -- Other modules (claude.lua …) log their own phase timings into the
+    -- run log of the press that triggered them, so one file tells the
+    -- whole story instead of half of it.
+    obj._runLog = runLog
 
     local function startRunLog(name)
         if not runLogsEnabled() then
             currentRunLog = nil
+            currentRunStarted = nil
             return
         end
 
@@ -75,6 +90,7 @@ return function(obj)
         local seconds = math.floor(now)
         local micro = math.floor((now - seconds) * 1000000)
 
+        currentRunStarted = now
         currentRunLog = string.format("%s%s_WS_%d_%06d.log",
             logsDir(), methodSuffix(name or "Workspace"), seconds, micro)
         runLog(string.format('=== Workspace "%s" run started ===', name))
@@ -941,12 +957,27 @@ return function(obj)
 
     -- Wait until a window matching appConfig.window exists; falls back
     -- to the main window when the title never shows up.
-    local function waitForTitledWindow(app, needle, callback, attempts)
+    --
+    -- Two different waits, because they mean different things. Up to
+    -- 12s is spent hunting the TITLED window while the app already has
+    -- windows — after that, any main window is a reasonable stand-in.
+    -- But an app with NO window at all is simply still starting, and
+    -- 12s is not enough from cold: `code .` took over 12.5s to show its
+    -- first window on a cold launch (measured 2026-08-02), which
+    -- produced a spurious "No window found matching" alert. So keep
+    -- waiting — quietly — while the app has nothing to show yet.
+    local function waitForTitledWindow(app, needle, callback, attempts, coldAttempts)
         attempts = attempts or 80
+        coldAttempts = coldAttempts or 200
 
         local window = findTitledWindow(app, needle)
 
         if window then
+            if coldAttempts < 200 then
+                runLog(string.format('window for "%s" appeared after %.1fs',
+                    needle, 12 + (200 - coldAttempts) * 0.15))
+            end
+
             callback(window)
             return
         end
@@ -956,15 +987,32 @@ return function(obj)
 
             if fallback then
                 callback(fallback)
-            else
-                warn("No window found matching: " .. needle)
+                return
             end
+
+            if coldAttempts <= 0 then
+                warn("No window found matching: " .. needle)
+                return
+            end
+
+            if coldAttempts == 200 then
+                runLog(string.format(
+                    'still no window for "%s" after 12s — app appears to be starting cold, waiting up to 30s more',
+                    needle))
+            elseif coldAttempts % 40 == 0 then
+                runLog(string.format('still waiting for a window for "%s" (%.1fs)',
+                    needle, 12 + (200 - coldAttempts) * 0.15))
+            end
+
+            hs.timer.doAfter(0.15, function()
+                waitForTitledWindow(app, needle, callback, 0, coldAttempts - 1)
+            end)
 
             return
         end
 
         hs.timer.doAfter(0.15, function()
-            waitForTitledWindow(app, needle, callback, attempts - 1)
+            waitForTitledWindow(app, needle, callback, attempts - 1, coldAttempts)
         end)
     end
 
@@ -1158,6 +1206,12 @@ return function(obj)
             return pick, urls
         end
 
+        -- Launch-only url entries (and malformed nameless ones) own
+        -- no window.
+        if not appConfig.name then
+            return nil
+        end
+
         local app = obj._getApp(realAppName(appConfig.name))
 
         if not app then
@@ -1188,10 +1242,113 @@ return function(obj)
     -- shared between all VS Code project windows, and rot after
     -- restarts). When appConfig.window matches an existing window title
     -- the launch step is skipped entirely and the window is just placed.
+    -- Dispatch an apps[].url state link. Our own hammerspoon:// URLs
+    -- are resolved to the bound launcher method and called directly
+    -- (no LaunchServices roundtrip); anything else goes through the
+    -- system URL handler.
+    local function dispatchStateUrl(url)
+        local host = url:match("^hammerspoon://([^?/]+)")
+
+        if host then
+            for key, value in pairs(obj) do
+                if type(value) == "function" and key:lower() == host:lower() then
+                    -- A state url is a CONVENIENCE, never a reason to
+                    -- lose the workspace. Before this was wrapped, a
+                    -- crash inside a launcher (claude.lua hitting a
+                    -- list of app objects during a cold relaunch,
+                    -- 2026-08-02) propagated out of launchApps and
+                    -- aborted the press: no windows launched, no
+                    -- layout, just "internal error". Report it and
+                    -- carry on launching.
+                    local ok, err = pcall(value, obj)
+
+                    if not ok then
+                        warn(string.format(
+                            'Workspace url "%s" failed (%s) — carrying on with the rest of the workspace',
+                            url, tostring(err)))
+                    end
+
+                    return ok
+                end
+            end
+
+            warn(string.format(
+                'Workspace url "%s" matches no launcher — run help() to see the available hammerspoon:// addresses',
+                url))
+            return false
+        end
+
+        local ok, err = pcall(hs.urlevent.openURL, url)
+
+        if not ok then
+            warn(string.format('Workspace url "%s" could not be opened (%s)',
+                url, tostring(err)))
+        end
+
+        return ok
+    end
+
+    -- apps[].url asserts application STATE (e.g.
+    -- hammerspoon://launchclaudecode<session>). It overrides "name"
+    -- for launching; "name" is optional and, when present, is the
+    -- installed-check — a missing app means the url is NOT dispatched
+    -- — and identifies the window for the layout. Fired once per
+    -- press, on EVERY press: the state is part of the workspace, so a
+    -- repair or resize press re-asserts it just like Chrome tabs.
+    local function fireStateUrl(appConfig)
+        local urlAppName = appConfig.name and realAppName(appConfig.name)
+
+        -- Timed so the log shows where a slow state restore went: the
+        -- wait for a cold-starting app, or the launcher's own work.
+        local function dispatchTimed(waitedFor)
+            local started = hs.timer.secondsSinceEpoch()
+
+            if waitedFor then
+                runLog(string.format("state url: %s app ready after %.2fs",
+                    tostring(appConfig.url),
+                    started - waitedFor))
+            end
+
+            local ok = dispatchStateUrl(appConfig.url)
+
+            runLog(string.format("state url: %s %s in %.2fs",
+                tostring(appConfig.url),
+                ok and "dispatched" or "FAILED",
+                hs.timer.secondsSinceEpoch() - started))
+        end
+
+        if not urlAppName or obj._getApp(urlAppName) then
+            dispatchTimed()
+            return
+        end
+
+        if not hs.application.launchOrFocus(urlAppName) then
+            warn(string.format('"%s" not installed — url %s not launched',
+                urlAppName, appConfig.url))
+            return
+        end
+
+        -- Cold start: the url only lands once the app is up.
+        local waitStarted = hs.timer.secondsSinceEpoch()
+
+        runLog(string.format('state url: %s waiting for "%s" to start',
+            tostring(appConfig.url), urlAppName))
+
+        obj._waitForApp(urlAppName, function()
+            dispatchTimed(waitStarted)
+        end)
+    end
+
     local function launchIntoSpace(appConfig, screen, spaceID, unit, context)
         if isChromeEntry(appConfig) then
             return launchChromeProfileIntoSpace(
                 appConfig, screen, spaceID, unit, context)
+        end
+
+        -- Launch-only url entries own no window; their url already
+        -- fired at the start of the press.
+        if appConfig.url and not appConfig.name then
+            return
         end
 
         local appName = realAppName(appConfig.name)
@@ -1437,8 +1594,34 @@ return function(obj)
             runLog(string.format("launchApps: start (space %s, validation=%s)",
                 tostring(runSpaceID), tostring(isValidation or false)))
 
+            -- apps[].url entries WITHOUT a "name" are LAUNCH-ONLY:
+            -- their state url fires (below) but they own no window —
+            -- no layout slot, no completeness accounting. (A url entry
+            -- WITH a name is a normal windowed entry: the name
+            -- resolves and places its window as usual.)
+            local windowedApps = {}
+
+            for _, appConfig in ipairs(config.apps or {}) do
+                if not (appConfig.url and not appConfig.name) then
+                    table.insert(windowedApps, appConfig)
+                end
+            end
+
             local units = layoutUnits(
-                config.layout, #(config.apps or {}), config.name)
+                config.layout, #windowedApps, config.name)
+
+            -- Assert application state FIRST, once per press (the
+            -- stage-2 validation re-entry must not re-fire it): the
+            -- press then goes on to launch, repair, or resize as
+            -- usual. This is what makes a plain repair/resize press
+            -- still put Claude on the right session.
+            if not isValidation then
+                for _, appConfig in ipairs(config.apps or {}) do
+                    if appConfig.url then
+                        fireStateUrl(appConfig)
+                    end
+                end
+            end
 
             -- Per-run state: claimed windows (a second entry with the
             -- same Chrome profile gets its own window), how often each
@@ -1474,7 +1657,7 @@ return function(obj)
             -- already exists on the desktop, the press repairs missing
             -- tabs, activates the desktop, or toggles the window sizes
             -- (config/windowSizes.json) — instead of launching.
-            local apps = config.apps or {}
+            local apps = windowedApps
             local preClaimed = {}
             local windows = {}
             local urlsPerEntry = {}

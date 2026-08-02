@@ -27,6 +27,7 @@ A workspace is a JSON file in `AppLaunchScripts.spoon/workspaces/` describing a 
 - [The GmailCommunications workspace](Docs/LaunchGmailCommunications.md) — `launchGmailCommunications()`: Gmail in two Chrome profiles on Desktop 2, kept out of git as a private workspace
 - [Launching dev apps](Docs/UseCaseLaunchingDevApps.md) — `launchDevApps()`: a VS Code project (duplicate-proof via the Electron window-title check) plus Terminal, 66/34
 - [Chrome windows with multiple tabs](Docs/LaunchChromeWithMultipleTabs.md) — `launchHealthTechNews()`: two tab-set windows side by side, with state restore — closed tabs reopen, nothing duplicates
+- [Workspaces with application state](Docs/WorkSpaceUseCaseWithApplicationState.md) — *since 0.11.0*: `apps[].url` plants any `hammerspoon://` state address into a workspace, so one press opens Claude with a coding session active, Slack on a channel, Teams on a person
 
 ## Slack
 
@@ -97,6 +98,20 @@ Every PC becomes a generated method and Stream Deck URL, e.g. `launchWindowsAppO
 ### Windows App use case
 
 - [Windows App — one button per remote PC](Docs/WindowsAppUseCase.md) — auto-discovery, what a press does, why tile pressing replaces the dead `rdp://` routes, and the security note
+
+## Claude
+
+One button per coding session: press it and the Claude desktop app opens with that session active (it opens the sidebar if it is collapsed, then clicks the session's row). Sessions are **auto-discovered** from Claude's own session store (titles, folders, and timestamps only — never transcripts), so there is nothing to configure — rename or archive sessions in Claude and the buttons follow:
+
+```
+hammerspoon://launchclaudecode<sessiontitle>
+```
+
+Every session becomes a generated method and Stream Deck URL, e.g. `launchClaudeCodeMyProject()` / `hammerspoon://launchclaudecodemyproject`, plus a plain `launchClaude()` / `hammerspoon://launchclaude` that just opens the app as-is. The same addresses plug into workspaces as [application state](Docs/WorkSpaceUseCaseWithApplicationState.md).
+
+### Claude use case
+
+- [Claude — one button per coding session](Docs/ClaudeUseCase.md) — launching Claude on its own vs with a session active, auto-discovery, what a press does, why clicking replaces the `claude://` deep link, the renaming caveat, and the security note
 
 ## Documentation
 

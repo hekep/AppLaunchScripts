@@ -21,3 +21,5 @@ AppLaunchScripts.spoon/availableDiscordComms.lua
 # Windows App config (contains personal PC hostnames)
 AppLaunchScripts.spoon/config/windowsapp/
 AppLaunchScripts.spoon/availableWindowsAppComms.lua
+# Claude catalog (contains personal session titles and folders)
+AppLaunchScripts.spoon/availableClaudeComms.lua

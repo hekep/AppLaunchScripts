@@ -7,7 +7,7 @@
 local obj = {}
 
 obj.name = "AppLaunchScripts"
-obj.version = "0.10.0"
+obj.version = "0.11.0"
 obj.author = "Heikki Pals"
 obj.homepage = "https://github.com/hekep/AppLaunchScripts"
 obj.license = "MIT"
@@ -391,6 +391,10 @@ function obj:help()
         self:generateWindowsAppMethods()
     end
 
+    if self.generateClaudeMethods then
+        self:generateClaudeMethods()
+    end
+
     local lines = {
         self.name .. " " .. self.version .. " — " .. self.homepage,
         "",
@@ -473,6 +477,16 @@ function obj:help()
         end
     end
 
+    if self._claudeLaunchers and #self._claudeLaunchers > 0 then
+        table.insert(lines, "")
+        table.insert(lines, "Claude coding sessions (scanned from the Claude app, most recent first):")
+
+        for _, method in ipairs(self._claudeLaunchers) do
+            table.insert(lines, string.format(
+                "  spoon.%s:%s()", self.name, method))
+        end
+    end
+
     local profileLines = {}
 
     for dir, name in pairs(self:chromeProfiles()) do
@@ -512,6 +526,7 @@ dofile(obj.spoonPath .. "slack.lua")(obj)
 dofile(obj.spoonPath .. "teams.lua")(obj)
 dofile(obj.spoonPath .. "discord.lua")(obj)
 dofile(obj.spoonPath .. "windowsapp.lua")(obj)
+dofile(obj.spoonPath .. "claude.lua")(obj)
 
 --- AppLaunchScripts:start()
 --- Method
