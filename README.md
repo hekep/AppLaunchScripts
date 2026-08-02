@@ -113,6 +113,20 @@ Every session becomes a generated method and Stream Deck URL, e.g. `launchClaude
 
 - [Claude — one button per coding session](Docs/ClaudeUseCase.md) — launching Claude on its own vs with a session active, auto-discovery, what a press does, why clicking replaces the `claude://` deep link, the renaming caveat, and the security note
 
+## Terminal
+
+One button per terminal tool: press it and `htop` is in front of you, in its own window, already running. Press it again and the same window comes forward; quit the tool by accident and the next press restarts it there. Ten monitoring tools are configured for you on first run:
+
+```
+hammerspoon://launchterminalhtop
+```
+
+Each tool owns one window, identified by the custom title of its first tab — which also lets a workspace place it. That gives two levels of sync in a single press: the workspace syncs *where* the windows are, each `url` syncs *what is running inside them*. Needs the one-time Automation permission for Terminal.
+
+### Terminal use case
+
+- [Terminal — one dedicated window per tool](Docs/TerminalUseCase.md) — the Automation permission, configuration, what a press does, the two-level workspace sync, Spaces behaviour, known issues, and the security note
+
 ## Documentation
 
 - [Basic use cases](Docs/BasicUseCases.md) — `help()`, `terminal()`, `focusOrLaunch()` with layouts, Chrome profiles, hotkeys, Stream Deck

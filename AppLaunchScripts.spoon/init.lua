@@ -7,7 +7,7 @@
 local obj = {}
 
 obj.name = "AppLaunchScripts"
-obj.version = "0.11.0"
+obj.version = "0.12.0"
 obj.author = "Heikki Pals"
 obj.homepage = "https://github.com/hekep/AppLaunchScripts"
 obj.license = "MIT"
@@ -395,6 +395,10 @@ function obj:help()
         self:generateClaudeMethods()
     end
 
+    if self.generateTerminalMethods then
+        self:generateTerminalMethods()
+    end
+
     local lines = {
         self.name .. " " .. self.version .. " — " .. self.homepage,
         "",
@@ -487,6 +491,16 @@ function obj:help()
         end
     end
 
+    if self._terminalLaunchers and #self._terminalLaunchers > 0 then
+        table.insert(lines, "")
+        table.insert(lines, "Terminal tools (config/terminal/*.json — one dedicated window each):")
+
+        for _, method in ipairs(self._terminalLaunchers) do
+            table.insert(lines, string.format(
+                "  spoon.%s:%s()", self.name, method))
+        end
+    end
+
     local profileLines = {}
 
     for dir, name in pairs(self:chromeProfiles()) do
@@ -527,6 +541,7 @@ dofile(obj.spoonPath .. "teams.lua")(obj)
 dofile(obj.spoonPath .. "discord.lua")(obj)
 dofile(obj.spoonPath .. "windowsapp.lua")(obj)
 dofile(obj.spoonPath .. "claude.lua")(obj)
+dofile(obj.spoonPath .. "terminal.lua")(obj)
 
 --- AppLaunchScripts:start()
 --- Method

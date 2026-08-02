@@ -1,0 +1,32 @@
+{
+  "name": "SystemMonitoring",
+  "space": {
+    "display": "current",
+    "desktop": 3
+  },
+  "layout": {
+    "direction": "horizontal",
+    "widths": [
+      33,
+      33,
+      34
+    ]
+  },
+  "apps": [
+    {
+      "name": "Terminal",
+      "url": "hammerspoon://launchterminalhtop",
+      "window": "htop"
+    },
+    {
+      "name": "Terminal",
+      "url": "hammerspoon://launchterminaldiskio",
+      "window": "iostat"
+    },
+    {
+      "name": "Terminal",
+      "url": "hammerspoon://launchterminalglances",
+      "window": "glances"
+    }
+  ]
+}

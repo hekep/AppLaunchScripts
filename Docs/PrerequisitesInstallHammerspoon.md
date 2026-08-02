@@ -28,6 +28,19 @@ Verify:
 hs -c 'print(hs.accessibilityState())'
 ```
 
+
+## Automation permission (Terminal tools only)
+
+Needed only if you use the [Terminal integration](TerminalUseCase.md). The first press of a terminal button makes macOS ask:
+
+> **"Hammerspoon.app" wants access to control "Terminal.app".**
+
+Click **Allow**. It is *Hammerspoon* that needs the right, because the Spoon sends its Apple Events through it.
+
+**Hammerspoon freezes while that dialog is unanswered** — the Apple Event blocks, so buttons and workspaces stop responding until you click. Answer it rather than leaving it on screen.
+
+Denying it disables terminal buttons entirely: the accessibility API cannot read what a tab is running, nor set a window's title. Re-enable it under *System Settings → Privacy & Security → Automation → Hammerspoon → Terminal*.
+
 ## `luac`
 
 Ships with Lua — used to syntax-check the Spoon:
