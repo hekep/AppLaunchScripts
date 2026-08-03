@@ -7,7 +7,7 @@
 local obj = {}
 
 obj.name = "AppLaunchScripts"
-obj.version = "0.12.0"
+obj.version = "0.13.0"
 obj.author = "Heikki Pals"
 obj.homepage = "https://github.com/hekep/AppLaunchScripts"
 obj.license = "MIT"
@@ -492,10 +492,29 @@ function obj:help()
     end
 
     if self._terminalLaunchers and #self._terminalLaunchers > 0 then
+        local shells = {}
+
+        for _, method in ipairs(self._shellLaunchers or {}) do
+            shells[method] = true
+        end
+
         table.insert(lines, "")
         table.insert(lines, "Terminal tools (config/terminal/*.json — one dedicated window each):")
 
         for _, method in ipairs(self._terminalLaunchers) do
+            if not shells[method] then
+                table.insert(lines, string.format(
+                    "  spoon.%s:%s()", self.name, method))
+            end
+        end
+    end
+
+    if self._shellLaunchers and #self._shellLaunchers > 0 then
+        table.insert(lines, "")
+        table.insert(lines,
+            "Shell scripts (config/terminal/shells/ — shared window on Desktop 1):")
+
+        for _, method in ipairs(self._shellLaunchers) do
             table.insert(lines, string.format(
                 "  spoon.%s:%s()", self.name, method))
         end

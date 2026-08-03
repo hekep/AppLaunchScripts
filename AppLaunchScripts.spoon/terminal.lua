@@ -581,6 +581,169 @@ end tell]], asString(fullCommand(command, cwd)), asString(title)))
         return true
     end
 
+    -- ================= shell scripts (config/terminal/shells/) =========
+    -- Every script in that folder becomes a button. They all share ONE
+    -- Terminal window on Desktop 1: a script runs only when that window
+    -- is idle, and a press while something is still running is refused
+    -- rather than typed into it.
+    local shellWindowTitle = "shells"
+
+    local function shellsDir()
+        return configDir() .. "shells/"
+    end
+
+    -- The script's own first comment line, used as its catalog
+    -- description — so a script documents its own button.
+    local function scriptDescription(path)
+        local file = io.open(path, "r")
+
+        if not file then
+            return nil
+        end
+
+        local description
+
+        for _ = 1, 10 do
+            local line = file:read("*l")
+
+            if not line then
+                break
+            end
+
+            if not line:match("^#!") then
+                local text = line:match("^#%s*(.+)$")
+
+                if text then
+                    description = text
+                    break
+                end
+
+                if line:match("%S") then
+                    break
+                end
+            end
+        end
+
+        file:close()
+
+        return description
+    end
+
+    --- AppLaunchScripts:shellScripts()
+    --- Method
+    --- Scan config/terminal/shells/ for runnable scripts. Creates the
+    --- folder if it does not exist. README.md and dotfiles are skipped.
+    ---
+    --- Parameters:
+    ---  * None
+    ---
+    --- Returns:
+    ---  * A list of `{ name, path, description }` entries, sorted by name
+    function obj:shellScripts()
+        local dir = shellsDir()
+
+        if not hs.fs.attributes(dir) then
+            hs.fs.mkdir(dir)
+        end
+
+        local scripts = {}
+        local ok, iterator, dirObj = pcall(hs.fs.dir, dir)
+
+        if not ok then
+            return scripts
+        end
+
+        for entry in iterator, dirObj do
+            if entry:sub(1, 1) ~= "." and entry ~= "README.md" then
+                local path = dir .. entry
+                local attributes = hs.fs.attributes(path)
+                local permissions = attributes and attributes.permissions or ""
+
+                -- Anything executable, plus anything named *.sh so a
+                -- script that lost its +x bit still shows up.
+                if attributes and attributes.mode == "file"
+                    and (entry:match("%.sh$") or permissions:sub(3, 3) == "x") then
+                    table.insert(scripts, {
+                        name = entry:gsub("%.%w+$", ""),
+                        path = path,
+                        description = scriptDescription(path),
+                    })
+                end
+            end
+        end
+
+        table.sort(scripts, function(a, b)
+            return a.name < b.name
+        end)
+
+        return scripts
+    end
+
+    --- AppLaunchScripts:launchShellComm(label, path)
+    --- Method
+    --- Run one shell script in the shared shell window on Desktop 1:
+    --- switch there, bring the window up (creating it if needed), and
+    --- run the script only when the window is idle. A window still busy
+    --- with an earlier script is reported and the launch is cancelled.
+    ---
+    --- Parameters:
+    ---  * label - the script's name, for messages
+    ---  * path - absolute path to the script
+    ---
+    --- Returns:
+    ---  * `true` when the script was started, `false` when the window was busy or unavailable
+    function obj:launchShellComm(label, path)
+        -- Desktop 1 means the FIRST Space of the screen you are on.
+        local screen = hs.screen.mainScreen()
+        local spaces = screen and hs.spaces.spacesForScreen(screen)
+        local desktopOne = spaces and spaces[1]
+
+        if desktopOne and hs.spaces.focusedSpace() ~= desktopOne then
+            trace(string.format('switching to Desktop 1 (space %d) to run "%s"',
+                desktopOne, label))
+            hs.spaces.gotoSpace(desktopOne)
+            hs.timer.usleep(700000)
+        end
+
+        -- Single-quoted so paths with spaces survive the shell.
+        local command = "'" .. path .. "'"
+        local windowId = pickWindow(findWindowIds(shellWindowTitle), label)
+
+        if not windowId then
+            windowId = createWindow(shellWindowTitle, command, label, nil)
+
+            if not windowId then
+                notify(string.format('Could not open the shell window for "%s"',
+                    label))
+                return false
+            end
+
+            trace(string.format('created the shared shell window (id %d) — running "%s"',
+                windowId, label))
+            showWindow(windowId)
+
+            return true
+        end
+
+        -- Always focused, as asked: you see the window before anything
+        -- else happens, whether it runs or is refused.
+        showWindow(windowId)
+
+        local tab = inspectTab(windowId)
+
+        if tab and (#tab.running > 0 or tab.busy) then
+            notify(string.format(
+                'Shell window is busy running %s — "%s" was not started, try again later',
+                table.concat(tab.running, ", "), label))
+            return false
+        end
+
+        trace(string.format('running "%s" in the shared shell window', label))
+        runInTab(windowId, command, nil)
+
+        return true
+    end
+
     --- AppLaunchScripts:generateTerminalMethods()
     --- Method
     --- Regenerate availableTerminalComms.lua from config/terminal/*.json
@@ -676,6 +839,55 @@ end tell]], asString(fullCommand(command, cwd)), asString(title)))
                 tool.cwd and string.format("%q", tool.cwd) or "nil"))
         end
 
+        -- Shell scripts: one button each, all sharing one window.
+        local shellLaunchers = {}
+        local scripts = self:shellScripts()
+
+        if #scripts > 0 then
+            table.insert(lines, "")
+            table.insert(lines, "    -- ---- Shell scripts (config/terminal/shells/) ----")
+            table.insert(lines, "    -- All of these share ONE Terminal window on Desktop 1.")
+            table.insert(lines, "    -- A script runs only when that window is idle; a press")
+            table.insert(lines, "    -- while something is still running is refused, not queued.")
+        end
+
+        for _, script in ipairs(scripts) do
+            local requested = "launchShell" .. camelize(script.name)
+            local method = requested
+            local bump = 0
+
+            while usedMethods[method] do
+                bump = bump + 1
+                method = requested .. bump
+            end
+
+            local what = string.format('Shell script "%s"%s', script.name,
+                script.description and (" — " .. script.description) or "")
+
+            table.insert(launchers, method)
+            table.insert(generated, method)
+            table.insert(shellLaunchers, method)
+            table.insert(lines, "")
+            table.insert(lines, "    -- " .. what)
+
+            if bump > 0 then
+                table.insert(lines, string.format(
+                    '    -- NOTE: "%s" was not available — already taken by: %s.',
+                    requested, usedMethods[requested]))
+            end
+
+            usedMethods[method] = what
+
+            table.insert(lines, string.format(
+                "    -- shell:  hs -c 'spoon.AppLaunchScripts:%s()'", method))
+            table.insert(lines, string.format(
+                "    -- button: hammerspoon://%s", method:lower()))
+            table.insert(lines, string.format([[
+    function obj:%s()
+        return self:launchShellComm(%q, %q)
+    end]], method, script.name, script.path))
+        end
+
         table.insert(lines, "end")
 
         local file = io.open(generatedFile(), "w")
@@ -692,6 +904,7 @@ end tell]], asString(fullCommand(command, cwd)), asString(title)))
 
         obj._terminalLaunchers = launchers
         obj._terminalGenerated = generated
+        obj._shellLaunchers = shellLaunchers
 
         for _, method in ipairs(launchers) do
             local handler = function()

@@ -123,6 +123,8 @@ hammerspoon://launchterminalhtop
 
 Each tool owns one window, identified by the custom title of its first tab — which also lets a workspace place it. That gives two levels of sync in a single press: the workspace syncs *where* the windows are, each `url` syncs *what is running inside them*. Needs the one-time Automation permission for Terminal.
 
+**Shell scripts** work the other way round: drop a script into `config/terminal/shells/` and it becomes a button, but they all share **one** window on Desktop 1 — always brought to the front so you can read the output, and refusing to start while another script is still running. The shared window is the lock that stops overlapping runs.
+
 ### Terminal use case
 
 - [Terminal — one dedicated window per tool](Docs/TerminalUseCase.md) — the Automation permission, configuration, what a press does, the two-level workspace sync, Spaces behaviour, known issues, and the security note

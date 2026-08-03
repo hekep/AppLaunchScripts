@@ -23,6 +23,11 @@ AppLaunchScripts.spoon/config/windowsapp/
 AppLaunchScripts.spoon/availableWindowsAppComms.lua
 # Claude catalog (contains personal session titles and folders)
 AppLaunchScripts.spoon/availableClaudeComms.lua
-# Terminal config (commands may contain personal paths and hosts)
-AppLaunchScripts.spoon/config/terminal/
+# Terminal config (commands may contain personal paths and hosts).
+# The shells/ FOLDER ships (so the feature is discoverable) but every
+# script inside it is private.
+AppLaunchScripts.spoon/config/terminal/*
+!AppLaunchScripts.spoon/config/terminal/shells/
+AppLaunchScripts.spoon/config/terminal/shells/*
+!AppLaunchScripts.spoon/config/terminal/shells/README.md
 AppLaunchScripts.spoon/availableTerminalComms.lua
