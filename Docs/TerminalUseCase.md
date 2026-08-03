@@ -110,13 +110,13 @@ A press looks for the tool's window **on the current desktop**, which during a w
 
 Unlike the accessibility API, AppleScript sees Terminal windows on every Space, so a window parked elsewhere is found rather than silently duplicated.
 
-## Shell scripts: one window, one script at a time
+## Scripts: one window, one script at a time
 
-Monitoring tools each own a window. **Shell scripts are the opposite: they all share one**, on Desktop 1. Drop a script into `config/terminal/shells/` and it becomes a button:
+Monitoring tools each own a window. **Scripts are the opposite: they all share one**, on Desktop 1. Drop a script into `config/terminal/scripts/` and it becomes a button:
 
 ```
-deploy-staging.sh   ->  launchShellDeployStaging()
-                        hammerspoon://launchshelldeploystaging
+deploy-staging.sh   ->  launchScriptDeployStaging()
+                        hammerspoon://launchscriptdeploystaging
 ```
 
 Nothing to configure — the file name is the button name, CamelCased with accents transliterated, exactly like every other integration. Rename a script and its address follows; delete it and the button disappears on the next `help()` or reload. Any executable file counts, as does anything named `*.sh` that has lost its executable bit.
@@ -136,7 +136,7 @@ Two reasons, and both are the point of the feature rather than a limitation.
 
 **Overlapping runs must be impossible.** Scripts that touch the same machine, the same files or the same remote host must never run two at a time. The single window enforces that: a press while a script is still running is **refused**, with the name of what is holding the window —
 
-> Shell window is busy running rsync — "deploy-staging" was not started, try again later
+> Script window is busy running rsync — "deploy-staging" was not started, try again later
 
 — and the launcher returns `false`. Nothing is typed into a running program, nothing is queued behind your back, and two scripts cannot interleave. The window *is* the lock, and because it is in front of you, you can see exactly what holds it.
 
@@ -147,18 +147,18 @@ Two reasons, and both are the point of the feature rather than a limitation.
 3. If the window is **idle**, run the script in it.
 4. If the window is **busy**, report what is running and cancel.
 
-The shared window's title is `shells`, so a workspace can place it like any other terminal window: `{ "name": "Terminal", "window": "shells" }`.
+The shared window's title is `scripts`, so a workspace can place it like any other terminal window: `{ "name": "Terminal", "window": "scripts" }`.
 
 ### Privacy
 
-The `shells/` **folder** is committed so the feature is discoverable, but **the scripts inside it are not** — they routinely hold hostnames, paths and account details. `.gitignore` publishes the folder's README and hides everything else. Keep credentials out of the scripts regardless: anything there is readable by any application that can read your files.
+The `scripts/` **folder** is committed so the feature is discoverable, but **the scripts inside it are not** — they routinely hold hostnames, paths and account details. `.gitignore` publishes the folder's README and hides everything else. Keep credentials out of the scripts regardless: anything there is readable by any application that can read your files.
 
 ## Known issues
 
 - **The sync is superficial about parameters.** A tool is considered "running" when its *process name* appears in the tab — `iostat` matches `iostat`, whatever arguments it was given. Change `iostat -w 2` to `iostat -w 5` in the config and a press will **not** restart it with the new interval, because something called `iostat` is already there. Quit it in the window (or close the window) and press again to pick up changed arguments.
 - **Terminal copies the custom title into new tabs and windows** opened from a window that has one. Press `Cmd+T` in the `htop` window and the result also calls itself `htop`. A press then prefers the window on this desktop that is actually running the tool, so it still does the right thing — but two identically titled windows may exist.
 - **Two tools must not share a `title`.** They would each restart the other's command forever. The catalog warns about this at generation time, and an alert names the pair.
-- **A shell script that leaves something running holds the window.** The lock is released when the tab returns to a prompt, so a script ending in `tail -f` or an interactive prompt keeps every other script locked out until you deal with it. That is deliberate — but it is the one way to block yourself.
+- **A script that leaves something running holds the window.** The lock is released when the tab returns to a prompt, so a script ending in `tail -f` or an interactive prompt keeps every other script locked out until you deal with it. That is deliberate — but it is the one way to block yourself.
 
 ## Security note
 

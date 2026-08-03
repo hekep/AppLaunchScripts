@@ -7,7 +7,7 @@
 local obj = {}
 
 obj.name = "AppLaunchScripts"
-obj.version = "0.13.0"
+obj.version = "0.14.0"
 obj.author = "Heikki Pals"
 obj.homepage = "https://github.com/hekep/AppLaunchScripts"
 obj.license = "MIT"
@@ -494,7 +494,7 @@ function obj:help()
     if self._terminalLaunchers and #self._terminalLaunchers > 0 then
         local shells = {}
 
-        for _, method in ipairs(self._shellLaunchers or {}) do
+        for _, method in ipairs(self._scriptLaunchers or {}) do
             shells[method] = true
         end
 
@@ -509,12 +509,12 @@ function obj:help()
         end
     end
 
-    if self._shellLaunchers and #self._shellLaunchers > 0 then
+    if self._scriptLaunchers and #self._scriptLaunchers > 0 then
         table.insert(lines, "")
         table.insert(lines,
-            "Shell scripts (config/terminal/shells/ — shared window on Desktop 1):")
+            "Scripts (config/terminal/scripts/ — shared window on Desktop 1):")
 
-        for _, method in ipairs(self._shellLaunchers) do
+        for _, method in ipairs(self._scriptLaunchers) do
             table.insert(lines, string.format(
                 "  spoon.%s:%s()", self.name, method))
         end
@@ -537,6 +537,87 @@ function obj:help()
 
         for _, line in ipairs(profileLines) do
             table.insert(lines, line)
+        end
+    end
+
+    return table.concat(lines, "\n")
+end
+
+--- AppLaunchScripts:helpUrls()
+--- Method
+--- The same catalog as `help()`, but as `hammerspoon://` addresses
+--- instead of method calls — the form a Stream Deck button needs.
+--- Paste one into a *Website* action with **Open with: Hammerspoon**.
+--- Everything is rescanned first, exactly as `help()` does, so new
+--- workspaces, sessions, tools and scripts appear by themselves.
+--- Handy from the shell:
+--- `hs -c 'spoon.AppLaunchScripts:helpUrls()'`
+---
+--- Parameters:
+---  * None
+---
+--- Returns:
+---  * The address list as a string
+function obj:helpUrls()
+    -- Refresh through help(), so both lists are always generated the
+    -- same way and cannot drift apart.
+    self:help()
+
+    local scripts = {}
+
+    for _, method in ipairs(self._scriptLaunchers or {}) do
+        scripts[method] = true
+    end
+
+    local terminalTools = {}
+
+    for _, method in ipairs(self._terminalLaunchers or {}) do
+        if not scripts[method] then
+            table.insert(terminalTools, method)
+        end
+    end
+
+    local sections = {
+        { "Workspaces", self._workspaceLaunchers },
+        { "Slack (config/slack/*.json)", self._slackLaunchers },
+        { "Microsoft Teams (config/teams/Teams.json)", self._teamsLaunchers },
+        { "Discord (config/discord/*.json + config/discordDM/*.json)",
+            self._discordLaunchers },
+        { "Windows App remote PCs (config/windowsapp/Pcs.json)",
+            self._windowsAppLaunchers },
+        { "Claude coding sessions (scanned from the Claude app)",
+            self._claudeLaunchers },
+        { "Terminal tools (config/terminal/*.json — one dedicated window each)",
+            terminalTools },
+        { "Scripts (config/terminal/scripts/ — shared window on Desktop 1)",
+            self._scriptLaunchers },
+    }
+
+    local lines = {
+        self.name .. " " .. self.version .. " — hammerspoon:// addresses",
+        "",
+        "Stream Deck: a \"Website\" action with Open with: Hammerspoon.",
+        "",
+        "Generic (bound by start(), these take parameters):",
+        "  hammerspoon://terminal",
+        "  hammerspoon://chrome?profile=<name>&layout=<layout>",
+        "  hammerspoon://focusorlaunch?app=<name>&layout=<layout>",
+        "  hammerspoon://launchworkspace?name=<workspace>",
+    }
+
+    for _, section in ipairs(sections) do
+        local heading, launchers = section[1], section[2]
+
+        if launchers and #launchers > 0 then
+            table.insert(lines, "")
+            table.insert(lines, heading .. ":")
+
+            for _, method in ipairs(launchers) do
+                -- Every launcher is bound under both its own name and
+                -- the lowercase twin; browsers lowercase URL hosts, so
+                -- the lowercase form is the one to paste.
+                table.insert(lines, "  hammerspoon://" .. method:lower())
+            end
         end
     end
 

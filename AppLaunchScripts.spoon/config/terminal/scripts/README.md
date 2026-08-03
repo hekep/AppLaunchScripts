@@ -1,12 +1,12 @@
-# Shell scripts
+# Scripts
 
 Drop a shell script in this folder and it becomes a button.
 
 Every executable script here is scanned on load and on every `help()` call, and each one gets its own method and `hammerspoon://` address:
 
 ```
-deploy-staging.sh   ->  launchShellDeployStaging()
-                        hammerspoon://launchshelldeploystaging
+deploy-staging.sh   ->  launchScriptDeployStaging()
+                        hammerspoon://launchscriptdeploystaging
 ```
 
 Nothing to configure: the file name is the button name, CamelCased with accents transliterated, exactly like the other integrations. Rename a script and its address follows; delete it and the button disappears.

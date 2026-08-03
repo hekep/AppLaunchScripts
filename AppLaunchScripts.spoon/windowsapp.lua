@@ -202,9 +202,38 @@ return function(obj)
         return true
     end
 
+    -- ONE usable Windows App application object, or nil.
+    --
+    -- obj._getApp falls back to hs.application.find(), which returns a
+    -- LIST when several processes match — and quitting the app with
+    -- Cmd+Q leaves the dying instance answering alongside the new one.
+    -- A list has no :activate(), and a quit app is nil outright: both
+    -- used to crash a press with "attempt to index a nil value".
+    local function windowsApp()
+        local found = obj._getApp(appName)
+
+        local function usable(candidate)
+            return candidate ~= nil and type(candidate.activate) == "function"
+        end
+
+        if usable(found) then
+            return found
+        end
+
+        if type(found) == "table" then
+            for _, candidate in ipairs(found) do
+                if usable(candidate) then
+                    return candidate
+                end
+            end
+        end
+
+        return nil
+    end
+
     -- Find a live session window whose title contains the fragment.
     local function findSessionWindow(fragment)
-        local app = obj._getApp(appName)
+        local app = windowsApp()
 
         if not app then
             return nil
@@ -239,7 +268,7 @@ return function(obj)
     -- host when the PC has none).
     local function findDeviceTile(names)
         local ax = require("hs.axuielement")
-        local app = obj._getApp(appName)
+        local app = windowsApp()
 
         if not app then
             return nil
@@ -298,7 +327,7 @@ return function(obj)
     function obj:launchWindowsAppComm(host, label, titleFragment)
         local fragment = titleFragment or label or host
 
-        if not obj._getApp(appName) then
+        if not windowsApp() then
             if not hs.application.launchOrFocus(appName) then
                 notify('"' .. appName .. '" not installed')
                 return false
@@ -306,7 +335,7 @@ return function(obj)
 
             -- Wait for the hub window: the device tiles live in it.
             for _ = 1, 60 do
-                local app = obj._getApp(appName)
+                local app = windowsApp()
 
                 if app and app:mainWindow() then
                     break
@@ -330,10 +359,32 @@ return function(obj)
         local tile = findDeviceTile({ label, host, titleFragment })
 
         if not tile then
+            -- No tile can mean three different things, and blaming the
+            -- configuration for all of them is wrong. Quitting the app
+            -- with Cmd+Q (or closing its window with Cmd+W) leaves it
+            -- starting up with no hub and no tiles yet — nothing to do
+            -- with which PCs you have saved.
+            local app = windowsApp()
+
+            if not app then
+                notify(string.format(
+                    'Windows App is not running yet — "%s" was not connected, press the button again in a moment',
+                    label or host))
+                return false
+            end
+
+            if not app:mainWindow() then
+                notify(string.format(
+                    'Windows App is still starting up — "%s" was not connected, press the button again in a moment',
+                    label or host))
+                app:activate(true)
+                return false
+            end
+
             notify(string.format(
                 '"%s" is not among Windows App\'s saved PCs — add it there once (Connections > Add PC), then this button works',
                 label or host))
-            obj._getApp(appName):activate(true)
+            app:activate(true)
             return false
         end
 
